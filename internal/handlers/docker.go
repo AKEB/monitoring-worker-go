@@ -138,6 +138,8 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	} else if err != nil && err != io.EOF {
 		cfg.DockerLogf("proxy URL parse: %v", err)
 	}
+	tr.IdleConnTimeout = 90 * time.Second
+	defer tr.CloseIdleConnections()
 
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}
 

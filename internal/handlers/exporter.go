@@ -28,7 +28,8 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		return respMap
 	}
-	tr := &http.Transport{}
+	tr := &http.Transport{IdleConnTimeout: 90 * time.Second}
+	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {

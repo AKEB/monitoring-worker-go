@@ -52,6 +52,9 @@ func NewWorker(cfg *config.Config) *Worker {
 	tr := &http.Transport{
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: !cfg.ServerTLS},
 		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
 		DialContext:           (&net.Dialer{Timeout: 20 * time.Second}).DialContext,
 		ResponseHeaderTimeout: 10 * time.Second,
 	}
@@ -426,6 +429,7 @@ func (w *Worker) syncJobsLocked(incoming []model.Job) {
 		if _, ok := byID[id]; !ok {
 			t.status = "deleted"
 			t.job = model.Job{}
+			t.response = nil
 			continue
 		}
 		t.status = "updated"
@@ -459,6 +463,7 @@ func (w *Worker) syncDockersLocked(incoming []model.Job) {
 		if _, ok := byID[id]; !ok {
 			t.status = "deleted"
 			t.job = model.Job{}
+			t.response = nil
 			continue
 		}
 		t.status = "updated"
@@ -525,6 +530,7 @@ func (w *Worker) sendJobsState() {
 		return
 	}
 	w.sendStateTime = time.Now().Unix()
+	clearTrackedResponses(jobsCopy)
 	w.mu.Unlock()
 	w.cfg.Logf("Finished sendJobsState function")
 }
@@ -582,8 +588,19 @@ func (w *Worker) sendDockersState() {
 		return
 	}
 	w.sendDockerStateTime = time.Now().Unix()
+	clearTrackedResponses(dockCopy)
 	w.mu.Unlock()
 	w.cfg.Logf("Finished sendDockersState function")
+}
+
+// clearTrackedResponses drops large per-job payloads (notably Docker Engine JSON)
+// after they have been POSTed to the server so RSS does not grow with every poll.
+func clearTrackedResponses(jobs []*trackedJob) {
+	for _, t := range jobs {
+		if t != nil {
+			t.response = nil
+		}
+	}
 }
 
 func (w *Worker) postMonitoring(url string, payload any) ([]byte, int, error) {

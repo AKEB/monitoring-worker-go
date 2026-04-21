@@ -29,8 +29,10 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: !(verify && verifyHost), MinVersion: tls.VersionTLS12},
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          10,
+		IdleConnTimeout:       90 * time.Second,
 		ResponseHeaderTimeout: clientTimeout,
 	}
+	defer tr.CloseIdleConnections()
 	if job.ProxyHost != "" {
 		if pu, err := parseProxyURL(job.ProxyHost); err == nil {
 			tr.Proxy = http.ProxyURL(pu)
