@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # нужно для softprops/action-gh-release при push тега v*
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Go build
+        run: |
+          VERSION="${GITHUB_REF_NAME:-}"
+          if [ -z "$VERSION" ]; then
+            VERSION="dev-${GITHUB_SHA:0:7}"
+          fi
+          go build -buildvcs=false \
+            -ldflags "-X monitoring-worker-go/internal/buildinfo.Version=${VERSION}" \
+            -v -o monitoring-worker ./cmd/worker/
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-worker-linux-amd64
+          path: monitoring-worker
+
+      - name: Prepare release asset name
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cp monitoring-worker monitoring-worker-linux-amd64
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: monitoring-worker-linux-amd64
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

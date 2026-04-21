@@ -1,0 +1,41 @@
+# monitoring-worker (Go) — systemd unit
+#
+# Установка (под root):
+#   1. Каталог с бинарником и .env (пример):
+#        install -d /opt/monitoring-worker
+#        install -m 0755 monitoring-worker /opt/monitoring-worker/
+#        install -m 0600 .env /opt/monitoring-worker/.env
+#   2. Unit:
+#        install -m 0644 deploy/monitoring-worker.service /etc/systemd/system/
+#        systemctl daemon-reload
+#        systemctl enable --now monitoring-worker.service
+#
+# Проверка: journalctl -u monitoring-worker -f
+#
+# В .env должны быть как минимум SERVER_HOST и WORKER_KEY_HASH (см. .env.example).
+# Воркер сам подхватывает .env из WorkingDirectory или из каталога с бинарником.
+
+[Unit]
+Description=Monitoring worker (polling jobs to monitoring server)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/monitoring-worker
+ExecStart=/opt/monitoring-worker/monitoring-worker
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monitoring-worker
+
+# Не даём ядру убить процесс при нехватке памяти раньше других (по желанию раскомментируйте)
+# OOMScoreAdjust=-100
+
+[Install]
+WantedBy=multi-user.target
