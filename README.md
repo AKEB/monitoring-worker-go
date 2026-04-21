@@ -53,7 +53,7 @@ go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 Файл `.github/workflows/build.yml`:
 
 - на **push** в `main`/`master` и на **pull request** — сборка и артефакт в карточке запуска workflow (как раньше);
-- на **push тега** вида `v1.2.3` — та же сборка плюс **GitHub Release** с вложением `monitoring-worker-linux-amd64` (через [softprops/action-gh-release](https://github.com/softprops/action-gh-release)).
+- на **push тега** вида `v1.2.3` — та же сборка плюс **GitHub Release** с вложением `monitoring-worker` (через [softprops/action-gh-release](https://github.com/softprops/action-gh-release)).
 
 Пример публикации версии:
 

@@ -34,18 +34,14 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: monitoring-worker-linux-amd64
+          name: monitoring-worker
           path: monitoring-worker
-
-      - name: Prepare release asset name
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: cp monitoring-worker monitoring-worker-linux-amd64
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: monitoring-worker-linux-amd64
+          files: monitoring-worker
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
