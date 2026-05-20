@@ -349,13 +349,19 @@ func (w *Worker) getJobs() {
 		time.Sleep(10 * time.Second)
 		return
 	}
-	hasData := len(parsed.Data) > 0 && string(parsed.Data) != "null"
-	hasJobs := len(parsed.Jobs) > 0
-	hasDockers := len(parsed.Dockers) > 0
-	if !hasData && !hasJobs && !hasDockers {
-		w.cfg.Logf("getJobs empty payload")
+	if parsed.Status != 0 {
+		w.cfg.Logf("getJobs status=%d", parsed.Status)
 		time.Sleep(10 * time.Second)
 		return
+	}
+
+	jobs := parsed.Jobs
+	if jobs == nil {
+		jobs = []model.Job{}
+	}
+	dockers := parsed.Dockers
+	if dockers == nil {
+		dockers = []model.Job{}
 	}
 
 	w.mu.Lock()
@@ -365,8 +371,8 @@ func (w *Worker) getJobs() {
 			w.syncConfigLocked(cfgObj)
 		}
 	}
-	w.syncJobsLocked(parsed.Jobs)
-	w.syncDockersLocked(parsed.Dockers)
+	w.syncJobsLocked(jobs)
+	w.syncDockersLocked(dockers)
 	w.jobSyncLast = time.Now().Unix()
 	w.mu.Unlock()
 
@@ -432,9 +438,6 @@ func toInt(v any) (int, bool) {
 }
 
 func (w *Worker) syncJobsLocked(incoming []model.Job) {
-	if len(incoming) == 0 {
-		return
-	}
 	byID := make(map[int]model.Job, len(incoming))
 	newIDs := make([]int, 0)
 	for _, j := range incoming {
@@ -466,9 +469,6 @@ func (w *Worker) syncJobsLocked(incoming []model.Job) {
 }
 
 func (w *Worker) syncDockersLocked(incoming []model.Job) {
-	if len(incoming) == 0 {
-		return
-	}
 	byID := make(map[int]model.Job, len(incoming))
 	newIDs := make([]int, 0)
 	for _, j := range incoming {
@@ -516,8 +516,6 @@ func (w *Worker) sendJobsState() {
 		"worker_key_hash":  w.cfg.WorkerKeyHash,
 		"protocol_version": w.cfg.ProtocolVersion,
 		"worker_version":   w.cfg.WorkerVersion,
-		"jobs":             []any{},
-		"dockers":          []any{},
 	}
 	jobsOut := make([]any, 0, len(jobsCopy))
 	for _, t := range jobsCopy {
@@ -570,8 +568,6 @@ func (w *Worker) sendDockersState() {
 		"worker_key_hash":  w.cfg.WorkerKeyHash,
 		"protocol_version": w.cfg.ProtocolVersion,
 		"worker_version":   w.cfg.WorkerVersion,
-		"jobs":             []any{},
-		"dockers":          []any{},
 	}
 	out := make([]any, 0, len(dockCopy))
 	for _, t := range dockCopy {

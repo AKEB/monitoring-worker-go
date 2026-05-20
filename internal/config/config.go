@@ -77,11 +77,26 @@ func Get() *Config {
 	return cfg
 }
 
+func (c *Config) logPrefix() string {
+	if c.WorkerID > 0 {
+		return fmt.Sprintf("[%s] worker=%d PID=%d ", time.Now().Format("2006-01-02 15:04:05"), c.WorkerID, os.Getpid())
+	}
+	return fmt.Sprintf("[%s] PID=%d ", time.Now().Format("2006-01-02 15:04:05"), os.Getpid())
+}
+
 func (c *Config) Logf(format string, args ...any) {
 	if !c.Debug {
 		return
 	}
-	fmt.Printf("[%s] PID=%d %s\n", time.Now().Format("2006-01-02 15:04:05"), os.Getpid(), fmt.Sprintf(format, args...))
+	fmt.Printf("%s%s\n", c.logPrefix(), fmt.Sprintf(format, args...))
+}
+
+// CurlLogf — диагностика HTTP-запросов при CURL_DEBUG=true.
+func (c *Config) CurlLogf(format string, args ...any) {
+	if !c.CurlDebug {
+		return
+	}
+	fmt.Printf("%s[curl] %s\n", c.logPrefix(), fmt.Sprintf(format, args...))
 }
 
 // DockerLogf пишет диагностику Docker Engine API при DOCKER_DEBUG=true (аналог PHP DOCKER_DEBUG).

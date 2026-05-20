@@ -7,6 +7,7 @@ import (
 )
 
 type getJobsJSON struct {
+	Status  int             `json:"status"`
 	Error   string          `json:"error"`
 	Data    json.RawMessage `json:"data"`
 	Jobs    []model.Job     `json:"jobs"`

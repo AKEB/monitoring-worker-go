@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"monitoring-worker-go/internal/config"
 	"monitoring-worker-go/internal/model"
 )
 
@@ -33,11 +34,15 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 		ResponseHeaderTimeout: clientTimeout,
 	}
 	defer tr.CloseIdleConnections()
-	if job.ProxyHost != "" {
-		if pu, err := parseProxyURL(job.ProxyHost); err == nil {
-			tr.Proxy = http.ProxyURL(pu)
-		}
+	cfg := config.Get()
+	proxyHost := job.ProxyHost
+	proxyType := job.ProxyType
+	if proxyHost == "" {
+		proxyHost = cfg.ProxyHost
+		proxyType = cfg.ProxyType
 	}
+	curlLog := func(format string, args ...any) { cfg.CurlLogf(format, args...) }
+	configureTransportProxy(tr, proxyHost, proxyType, curlLog)
 	maxRedir := job.MaxRedirects
 	if maxRedir <= 0 {
 		maxRedir = 10
@@ -65,6 +70,9 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 		return respMap
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	if cfg.CurlDebug {
+		cfg.CurlLogf("%s %s proxy_type=%s", method, job.URL, proxyType)
+	}
 	for _, h := range parseHeaders(job.RequestHeaders) {
 		parts := strings.SplitN(h, ":", 2)
 		if len(parts) == 2 {
@@ -81,6 +89,9 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 		return respMap
 	}
 	defer resp.Body.Close()
+	if cfg.CurlDebug {
+		cfg.CurlLogf("response %s %d %s", job.URL, resp.StatusCode, resp.Proto)
+	}
 
 	var bodyStr string
 	if job.Type == JobTypeHTTPJSON {

@@ -37,6 +37,8 @@ go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 - **get/** — только нужные поля задач; Docker PEM по `docker_tls_sync` + `docker_update_time`.
 - **state/** — без `response_body`; Docker — только `container_states`; HTTPS — `cert_expire` для SSL-алертов.
 - Ответы API без `server_time` / `server_microtime`.
+- **`CURL_DEBUG`** — лог HTTP (метод, URL, код ответа, прокси); **`proxy_type`** как в PHP cURL (HTTP/SOCKS5).
+- Перезапуск с сервера: `data.restart` (кнопка в админке воркера на сервере).
 
 ### `WORKER_VERSION` (как в PHP)
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"monitoring-worker-go/internal/config"
 	"monitoring-worker-go/internal/model"
 )
 
@@ -30,6 +31,14 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 	}
 	tr := &http.Transport{IdleConnTimeout: 90 * time.Second}
 	defer tr.CloseIdleConnections()
+	cfg := config.Get()
+	proxyHost := job.ProxyHost
+	proxyType := job.ProxyType
+	if proxyHost == "" {
+		proxyHost = cfg.ProxyHost
+		proxyType = cfg.ProxyType
+	}
+	configureTransportProxy(tr, proxyHost, proxyType, cfg.CurlLogf)
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {

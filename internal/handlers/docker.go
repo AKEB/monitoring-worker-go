@@ -132,12 +132,13 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 		}
 		cfg.DockerLogf("TLS disabled for Docker: InsecureSkipVerify=true (non-TLS job)")
 	}
-	if pu, err := effectiveDockerProxyURL(job, cfg); err == nil && pu != nil {
-		tr.Proxy = http.ProxyURL(pu)
-		cfg.DockerLogf("HTTP transport ProxyURL set to scheme=%q host=%q", pu.Scheme, pu.Host)
-	} else if err != nil && err != io.EOF {
-		cfg.DockerLogf("proxy URL parse: %v", err)
+	proxyHost := strings.TrimSpace(job.ProxyHost)
+	proxyType := job.ProxyType
+	if proxyHost == "" {
+		proxyHost = strings.TrimSpace(cfg.ProxyHost)
+		proxyType = cfg.ProxyType
 	}
+	configureTransportProxy(tr, proxyHost, proxyType, cfg.DockerLogf)
 	tr.IdleConnTimeout = 90 * time.Second
 	defer tr.CloseIdleConnections()
 
@@ -195,17 +196,6 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	}
 
 	return respMap
-}
-
-func effectiveDockerProxyURL(job model.Job, cfg *config.Config) (*url.URL, error) {
-	ph := strings.TrimSpace(job.ProxyHost)
-	if ph == "" {
-		ph = strings.TrimSpace(cfg.ProxyHost)
-	}
-	if ph == "" {
-		return nil, io.EOF
-	}
-	return parseProxyURL(ph)
 }
 
 func tlsServerName(host string) string {
