@@ -1,5 +1,5 @@
 module monitoring-worker-go
 
-go 1.25.0
+go 1.22
 
-require golang.org/x/net v0.54.0 // indirect
+require golang.org/x/net v0.33.0
