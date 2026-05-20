@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -307,12 +308,29 @@ func (w *Worker) applyProxy(j *model.Job) {
 	}
 }
 
+func (w *Worker) dockerTLSSyncLocked() map[string]int64 {
+	out := make(map[string]int64)
+	for _, t := range w.dockers {
+		if t == nil || t.job.ID <= 0 || t.job.DockerUpdateTime <= 0 {
+			continue
+		}
+		out[strconv.Itoa(t.job.ID)] = t.job.DockerUpdateTime
+	}
+	return out
+}
+
 func (w *Worker) getJobs() {
 	w.cfg.Logf("Starting getJobs function")
-	payload := map[string]string{
+	w.mu.Lock()
+	tlsSync := w.dockerTLSSyncLocked()
+	w.mu.Unlock()
+	payload := map[string]any{
 		"worker_key_hash":  w.cfg.WorkerKeyHash,
 		"protocol_version": w.cfg.ProtocolVersion,
 		"worker_version":   w.cfg.WorkerVersion,
+	}
+	if len(tlsSync) > 0 {
+		payload["docker_tls_sync"] = tlsSync
 	}
 	body, code, err := w.postMonitoring(w.cfg.ServerHost+"api/monitoring/get/", payload)
 	if err != nil || code != 200 || len(body) == 0 {
@@ -467,7 +485,7 @@ func (w *Worker) syncDockersLocked(incoming []model.Job) {
 			continue
 		}
 		t.status = "updated"
-		nj := byID[id]
+		nj := model.MergeDockerTLS(t.job, byID[id])
 		if t.job.UpdateTime > nj.UpdateTime {
 			nj.UpdateTime = t.job.UpdateTime
 		}

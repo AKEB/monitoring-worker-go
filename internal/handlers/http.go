@@ -95,6 +95,9 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	respMap["response_error"] = ""
 	respMap["response_error_num"] = 0
 	respMap["total_time_us"] = time.Since(start).Microseconds()
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		respMap["cert_expire"] = resp.TLS.PeerCertificates[0].NotAfter.Unix()
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 500 {
 		respMap["status"] = 0
 	}

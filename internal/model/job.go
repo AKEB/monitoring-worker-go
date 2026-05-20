@@ -16,8 +16,9 @@ type Job struct {
 	Port           int    `json:"port"`
 	Timeout        int    `json:"timeout"`
 	RepeatSeconds  int    `json:"repeat_seconds"`
-	UpdateTime     int64  `json:"update_time"`
-	StartTime      int64  `json:"start_time,omitempty"`
+	UpdateTime        int64 `json:"update_time"`
+	DockerUpdateTime  int64 `json:"docker_update_time,omitempty"`
+	StartTime         int64 `json:"start_time,omitempty"`
 	RequestHeaders string `json:"request_headers,omitempty"`
 	ProxyHost      string `json:"proxy_host,omitempty"`
 	ProxyType      string `json:"proxy_type,omitempty"`
@@ -51,6 +52,7 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 	j.Timeout = rawInt(raw["timeout"])
 	j.RepeatSeconds = rawInt(raw["repeat_seconds"])
 	j.UpdateTime = rawInt64(raw["update_time"])
+	j.DockerUpdateTime = rawInt64(raw["docker_update_time"])
 	j.StartTime = rawInt64(raw["start_time"])
 	j.RequestHeaders = rawString(raw["request_headers"])
 	j.ProxyHost = rawString(raw["proxy_host"])
@@ -68,6 +70,26 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 	j.TLSKey = rawString(raw["tls_key"])
 
 	return nil
+}
+
+// MergeDockerTLS keeps cached PEM material when the server omits tls_* on unchanged docker_update_time.
+func MergeDockerTLS(prev, incoming Job) Job {
+	if incoming.DockerUpdateTime <= 0 {
+		return incoming
+	}
+	if prev.DockerUpdateTime != incoming.DockerUpdateTime || prev.ID != incoming.ID {
+		return incoming
+	}
+	if incoming.TLSCAFile == "" && prev.TLSCAFile != "" {
+		incoming.TLSCAFile = prev.TLSCAFile
+	}
+	if incoming.TLSCertificate == "" && prev.TLSCertificate != "" {
+		incoming.TLSCertificate = prev.TLSCertificate
+	}
+	if incoming.TLSKey == "" && prev.TLSKey != "" {
+		incoming.TLSKey = prev.TLSKey
+	}
+	return incoming
 }
 
 func rawAny(v json.RawMessage) any {

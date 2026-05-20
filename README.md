@@ -1,6 +1,6 @@
 # monitoring-worker-go
 
-Go-реализация воркера мониторинга, совместимая по API с PHP-версией (`monitoring-worker`): один бинарник, конфиг из окружения и опционально из `.env` рядом с процессом или с бинарником.
+Go-воркер мониторинга для API **protocol 2.0** (monitoring-server ≥ v2.1.0): один бинарник, конфиг из окружения и опционально из `.env` рядом с процессом или с бинарником.
 
 ## Сборка
 
@@ -30,13 +30,13 @@ go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 
 Смысл и имена совпадают с `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HASH`, `WORKER_THREADS`, `JOBS_GET_TIMEOUT`, `LOOP_TIMEOUT`, `RESPONSE_SEND_TIMEOUT`, `LOGS_WRITE_TIMEOUT`, `PROXY_HOST`, `PROXY_TYPE`, `WORKER_VERSION`, `PROTOCOL_VERSION` (по умолчанию `2.0` — урезанный обмен с сервером), `DEBUG`, `CURL_DEBUG`, `DOCKER_DEBUG`, `IMMEDIATE_ERROR_RETRY` (по умолчанию `true`, как в PHP).
 
-### Протокол 2.0 (трафик worker ↔ monitoring)
+### Протокол 2.0 (обязателен)
 
-При `PROTOCOL_VERSION=2.0` (значение по умолчанию):
+`PROTOCOL_VERSION` по умолчанию `2.0`; значения `1.0` и пустая строка не принимаются. Сервер отвечает ошибкой, если версия протокола ниже 2.0.
 
-- **get/** — сервер отдаёт только поля, нужные воркеру (без `title`, `container_states`, notification-полей и т.д.).
-- **state/** — HTTP не отправляет `response_body`; Docker отправляет компактный `container_states` вместо сырого `body` Engine API (до ~128 KiB).
-- Для отката на старый обмен с PHP-воркером: `PROTOCOL_VERSION=1.0` (нужен monitoring с поддержкой legacy `body` на state).
+- **get/** — только нужные поля задач; Docker PEM по `docker_tls_sync` + `docker_update_time`.
+- **state/** — без `response_body`; Docker — только `container_states`; HTTPS — `cert_expire` для SSL-алертов.
+- Ответы API без `server_time` / `server_microtime`.
 
 ### `WORKER_VERSION` (как в PHP)
 
