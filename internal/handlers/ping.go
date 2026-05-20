@@ -13,7 +13,7 @@ func RunPing(ctx context.Context, job model.Job) map[string]any {
 	timeout := capTimeout(job.Timeout)
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
-	resp := map[string]any{"status": 1, "status_code": 0, "response_unixtime": time.Now().Unix()}
+	resp := map[string]any{"status": 1, "status_code": 0}
 	cmd := exec.CommandContext(ctx, "ping", "-c", "1", job.Host)
 	if err := cmd.Run(); err != nil {
 		resp["status"] = 0

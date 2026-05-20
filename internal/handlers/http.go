@@ -54,7 +54,7 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 
 	start := time.Now()
-	respMap := map[string]any{"status": 1, "status_code": 0, "response_unixtime": time.Now().Unix()}
+	respMap := map[string]any{"status": 1, "status_code": 0}
 
 	req, err := http.NewRequestWithContext(ctx, method, job.URL, nil)
 	if err != nil {
@@ -82,19 +82,16 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 	defer resp.Body.Close()
 
-	readLimit := int64(64 * 1024)
+	var bodyStr string
 	if job.Type == JobTypeHTTPJSON {
-		readLimit = 2 << 20
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
-	bodyStr := string(body)
-	stored := bodyStr
-	if len(stored) > 8192 {
-		stored = stored[:8192]
+		readLimit := int64(2 << 20)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
+		bodyStr = string(body)
+	} else {
+		_, _ = io.Copy(io.Discard, resp.Body)
 	}
 
 	respMap["status_code"] = resp.StatusCode
-	respMap["response_body"] = stored
 	respMap["response_error"] = ""
 	respMap["response_error_num"] = 0
 	respMap["total_time_us"] = time.Since(start).Microseconds()
@@ -159,9 +156,6 @@ func parseHeaders(raw string) []string {
 
 func applyJSONCheck(resp map[string]any, body string, job model.Job) {
 	resp["json_valid"] = 0
-	resp["json_expected_value"] = job.JsonExpected
-	resp["json_expected_type"] = defaultString(job.JsonType, "string")
-	resp["json_path"] = job.JsonPath
 	if strings.TrimSpace(job.JsonPath) == "" {
 		resp["response_error"] = "JSON path is empty"
 		return
@@ -186,13 +180,13 @@ func applyJSONCheck(resp map[string]any, body string, job model.Job) {
 		resp["response_error"] = "JSON path not found: " + job.JsonPath
 		return
 	}
-	resp["json_actual_value"] = toString(actual)
+	actualStr := toString(actual)
 	if compareJSON(actual, job.JsonExpected, defaultString(job.JsonType, "string")) {
 		resp["json_valid"] = 1
 		resp["response_error"] = ""
 	} else {
 		resp["response_error"] = "JSON check failed at \"" + job.JsonPath + "\": expected (" +
-			defaultString(job.JsonType, "string") + ") \"" + job.JsonExpected + "\", got \"" + resp["json_actual_value"].(string) + "\""
+			defaultString(job.JsonType, "string") + ") \"" + job.JsonExpected + "\", got \"" + actualStr + "\""
 	}
 }
 

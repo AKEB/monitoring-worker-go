@@ -57,7 +57,7 @@ func Get() *Config {
 			ProxyType:           getString("PROXY_TYPE", ""),
 			WorkerKeyHash:       getString("WORKER_KEY_HASH", ""),
 			WorkerVersion:       resolveWorkerVersion(),
-			ProtocolVersion:     "1.0",
+			ProtocolVersion:     getString("PROTOCOL_VERSION", "2.0"),
 			Debug:               getBool("DEBUG", false),
 			CurlDebug:           getBool("CURL_DEBUG", false),
 			DockerDebug:         getBool("DOCKER_DEBUG", false),

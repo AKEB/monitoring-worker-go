@@ -18,7 +18,7 @@ var diskLineRe = regexp.MustCompile(`^node_filesystem_(size|avail)_bytes\{device
 func RunExporter(ctx context.Context, job model.Job) map[string]any {
 	start := time.Now()
 	timeout := capTimeout(job.Timeout)
-	respMap := map[string]any{"status": 1, "status_code": 0, "response_unixtime": time.Now().Unix()}
+	respMap := map[string]any{"status": 1, "status_code": 0}
 	url := "http://" + job.Host + ":" + strconv.Itoa(job.Port) + "/metrics"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

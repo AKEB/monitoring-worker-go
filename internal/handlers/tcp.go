@@ -11,7 +11,7 @@ import (
 
 func RunTCP(ctx context.Context, job model.Job) map[string]any {
 	start := time.Now()
-	resp := map[string]any{"status": 1, "status_code": 0, "response_unixtime": time.Now().Unix()}
+	resp := map[string]any{"status": 1, "status_code": 0}
 	addr := fmt.Sprintf("%s:%d", job.Host, job.Port)
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", addr)

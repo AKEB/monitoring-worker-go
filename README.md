@@ -28,7 +28,15 @@ go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 
 ## Переменные окружения
 
-Смысл и имена совпадают с `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HASH`, `WORKER_THREADS`, `JOBS_GET_TIMEOUT`, `LOOP_TIMEOUT`, `RESPONSE_SEND_TIMEOUT`, `LOGS_WRITE_TIMEOUT`, `PROXY_HOST`, `PROXY_TYPE`, `WORKER_VERSION`, `DEBUG`, `CURL_DEBUG`, `DOCKER_DEBUG`, `IMMEDIATE_ERROR_RETRY` (по умолчанию `true`, как в PHP).
+Смысл и имена совпадают с `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HASH`, `WORKER_THREADS`, `JOBS_GET_TIMEOUT`, `LOOP_TIMEOUT`, `RESPONSE_SEND_TIMEOUT`, `LOGS_WRITE_TIMEOUT`, `PROXY_HOST`, `PROXY_TYPE`, `WORKER_VERSION`, `PROTOCOL_VERSION` (по умолчанию `2.0` — урезанный обмен с сервером), `DEBUG`, `CURL_DEBUG`, `DOCKER_DEBUG`, `IMMEDIATE_ERROR_RETRY` (по умолчанию `true`, как в PHP).
+
+### Протокол 2.0 (трафик worker ↔ monitoring)
+
+При `PROTOCOL_VERSION=2.0` (значение по умолчанию):
+
+- **get/** — сервер отдаёт только поля, нужные воркеру (без `title`, `container_states`, notification-полей и т.д.).
+- **state/** — HTTP не отправляет `response_body`; Docker отправляет компактный `container_states` вместо сырого `body` Engine API (до ~128 KiB).
+- Для отката на старый обмен с PHP-воркером: `PROTOCOL_VERSION=1.0` (нужен monitoring с поддержкой legacy `body` на state).
 
 ### `WORKER_VERSION` (как в PHP)
 

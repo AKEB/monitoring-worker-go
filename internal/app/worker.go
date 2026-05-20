@@ -334,7 +334,7 @@ func (w *Worker) getJobs() {
 	hasData := len(parsed.Data) > 0 && string(parsed.Data) != "null"
 	hasJobs := len(parsed.Jobs) > 0
 	hasDockers := len(parsed.Dockers) > 0
-	if !hasData && (!hasJobs || !hasDockers) {
+	if !hasData && !hasJobs && !hasDockers {
 		w.cfg.Logf("getJobs empty payload")
 		time.Sleep(10 * time.Second)
 		return

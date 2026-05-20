@@ -24,7 +24,7 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	cfg := config.Get()
 	start := time.Now()
 	timeout := capTimeout(job.Timeout)
-	respMap := map[string]any{"status": 1, "status_code": 0, "response_unixtime": time.Now().Unix()}
+	respMap := map[string]any{"status": 1, "status_code": 0}
 
 	portStr := toPort(job.Port)
 	scheme := "http"
@@ -169,13 +169,22 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 	bodyStr := string(b)
+	totalUS := time.Since(start).Microseconds()
 	respMap["status_code"] = resp.StatusCode
-	respMap["body"] = decodeDockerBodyForState(bodyStr)
 	respMap["response_error_num"] = 0
 	respMap["response_error"] = ""
-	respMap["total_time_us"] = time.Since(start).Microseconds()
+	respMap["total_time_us"] = totalUS
 	if resp.StatusCode >= 500 {
 		respMap["status"] = 0
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		states, ok := dockerContainersForState(bodyStr, totalUS)
+		if !ok {
+			respMap["status"] = 0
+			respMap["response_error"] = "invalid Docker Engine containers/json response"
+		} else {
+			respMap["container_states"] = states
+		}
 	}
 
 	cfg.DockerLogf("response: status=%q code=%d proto=%s content_length=%d body_len=%d total_time_us=%d",
@@ -257,18 +266,132 @@ func writeTempPEM(suffix string, data []byte) string {
 	return f.Name()
 }
 
-func decodeDockerBodyForState(body string) any {
+// dockerContainersForState builds the compact payload stored by monitoring State.php
+// (protocol 2.0), matching the legacy body[] parsing on the server.
+func dockerContainersForState(body string, totalTimeUS int64) ([]map[string]any, bool) {
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
-		return body
+		return nil, false
 	}
-	var arr []map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &arr); err == nil {
-		return arr
+	var raw []map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+		return nil, false
 	}
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &obj); err == nil {
-		return obj
+	out := make([]map[string]any, 0, len(raw))
+	for _, c := range raw {
+		if cs := compactDockerContainer(c, totalTimeUS); cs != nil {
+			out = append(out, cs)
+		}
 	}
-	return body
+	return out, true
+}
+
+func compactDockerContainer(c map[string]any, totalTimeUS int64) map[string]any {
+	name := dockerContainerName(c)
+	if name == "" {
+		return nil
+	}
+	return map[string]any{
+		"id":            dockerFieldString(c, "Id"),
+		"image":         dockerFieldString(c, "Image"),
+		"image_id":      dockerFieldString(c, "ImageID"),
+		"name":          name,
+		"state":         dockerFieldString(c, "State"),
+		"status":        dockerFieldString(c, "Status"),
+		"created":       dockerFieldAny(c, "Created"),
+		"ports":         dockerFormatPorts(c),
+		"total_time_us": totalTimeUS,
+	}
+}
+
+func dockerContainerName(c map[string]any) string {
+	names, ok := c["Names"].([]any)
+	if !ok || len(names) == 0 {
+		return ""
+	}
+	s, _ := names[0].(string)
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "/") {
+		return s[1:]
+	}
+	return s
+}
+
+func dockerFormatPorts(c map[string]any) string {
+	portsRaw, ok := c["Ports"].([]any)
+	if !ok {
+		return ""
+	}
+	ports := make([]string, 0, len(portsRaw))
+	for _, p := range portsRaw {
+		pm, ok := p.(map[string]any)
+		if !ok || pm == nil {
+			continue
+		}
+		ip := dockerFieldString(pm, "IP")
+		if ip == "" {
+			continue
+		}
+		pub := dockerFieldInt(pm, "PublicPort")
+		if pub == 0 {
+			continue
+		}
+		portWithHost := ""
+		if ip == "::" || ip == "0.0.0.0" {
+			portWithHost = strconv.Itoa(pub)
+		} else {
+			portWithHost = ip + ":" + strconv.Itoa(pub)
+		}
+		if typ := dockerFieldString(pm, "Type"); typ != "" {
+			portWithHost += "/" + typ
+		}
+		ports = append(ports, portWithHost)
+	}
+	return strings.Join(ports, ", ")
+}
+
+func dockerFieldString(m map[string]any, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		return strconv.FormatInt(int64(t), 10)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func dockerFieldInt(m map[string]any, key string) int {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	default:
+		return 0
+	}
+}
+
+func dockerFieldAny(m map[string]any, key string) any {
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	return v
 }
