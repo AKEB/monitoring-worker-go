@@ -20,14 +20,15 @@ import (
 )
 
 type trackedJob struct {
-	status   string
-	state    string
-	job      model.Job
-	response map[string]any
-	running  bool
-	cancel   context.CancelFunc
-	done     chan struct{}
-	started  int64
+	status        string
+	state         string
+	job           model.Job
+	response      map[string]any
+	running       bool
+	cancel        context.CancelFunc
+	done          chan struct{}
+	started       int64
+	sendQueuedAt  int64 // unix: first enqueue to send queue (FIFO order)
 }
 
 type Worker struct {
@@ -101,12 +102,7 @@ func (w *Worker) Loop() {
 		w.tickAll(now)
 
 		now = time.Now().Unix()
-		if w.sendStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendStateJobs) > 0 {
-			w.sendJobsState()
-		}
-		if w.sendDockerStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendDockerStateJobs) > 0 {
-			w.sendDockersState()
-		}
+		w.drainSendQueues(now)
 
 		if logTime < now-int64(w.cfg.LogsWriteTimeout) {
 			logTime = now
@@ -160,7 +156,11 @@ func (w *Worker) tickAll(now int64) {
 }
 
 func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker bool) {
-	for id, t := range m {
+	for _, id := range sortedMapKeys(m) {
+		t := m[id]
+		if t == nil {
+			continue
+		}
 		j := &t.job
 		if j.RepeatSeconds <= 0 {
 			j.RepeatSeconds = 60
@@ -307,23 +307,39 @@ func (w *Worker) enqueueSend(t *trackedJob, docker bool) {
 	if t == nil || t.job.JobID == 0 {
 		return
 	}
+	now := time.Now().Unix()
 	if docker {
-		w.sendDockerStateJobs = upsertSendQueueByJobID(w.sendDockerStateJobs, t)
+		w.sendDockerStateJobs = upsertSendQueueByJobID(w.sendDockerStateJobs, t, now)
 	} else {
-		w.sendStateJobs = upsertSendQueueByJobID(w.sendStateJobs, t)
+		w.sendStateJobs = upsertSendQueueByJobID(w.sendStateJobs, t, now)
 	}
 }
 
-// upsertSendQueueByJobID keeps at most one pending send per job_id (latest result wins).
-// Without this, fast-failing jobs enqueue once per loop tick and one POST logs hundreds of duplicates.
-func upsertSendQueueByJobID(q []*trackedJob, t *trackedJob) []*trackedJob {
-	for i, x := range q {
-		if x != nil && x.job.JobID == t.job.JobID {
-			q[i] = t
-			return q
+// drainSendQueues sends pending results FIFO from the head of each queue.
+// When the queue is larger than one batch, multiple batches are sent in one loop tick
+// (still rate-limited by response_send_timeout between drain windows).
+func (w *Worker) drainSendQueues(now int64) {
+	w.mu.Lock()
+	jobsDue := w.sendStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendStateJobs) > 0
+	dockDue := w.sendDockerStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendDockerStateJobs) > 0
+	w.mu.Unlock()
+
+	for jobsDue {
+		if !w.sendJobsState() {
+			break
 		}
+		w.mu.Lock()
+		jobsDue = len(w.sendStateJobs) > 0
+		w.mu.Unlock()
 	}
-	return append(q, t)
+	for dockDue {
+		if !w.sendDockersState() {
+			break
+		}
+		w.mu.Lock()
+		dockDue = len(w.sendDockerStateJobs) > 0
+		w.mu.Unlock()
+	}
 }
 
 func (w *Worker) applyProxy(j *model.Job) {
@@ -538,16 +554,18 @@ func (w *Worker) syncDockersLocked(incoming []model.Job) {
 	}
 }
 
-func (w *Worker) sendJobsState() {
+// sendJobsState posts the oldest pending batch from sendStateJobs (FIFO).
+// Returns false if the queue was empty or the POST failed (retry later).
+func (w *Worker) sendJobsState() bool {
 	w.mu.Lock()
 	if len(w.sendStateJobs) == 0 {
 		w.sendStateTime = time.Now().Unix()
-		w.sendStateJobs = nil
 		w.mu.Unlock()
-		return
+		return false
 	}
-	jobsCopy := w.sendStateJobs
-	w.sendStateJobs = nil
+	batchSize := sendQueueBatchSize(w.cfg.WorkerThreads)
+	var jobsCopy []*trackedJob
+	jobsCopy, w.sendStateJobs = takeSendQueueFront(w.sendStateJobs, batchSize)
 	w.mu.Unlock()
 
 	w.cfg.Logf("Starting sendJobsState function")
@@ -573,7 +591,7 @@ func (w *Worker) sendJobsState() {
 		w.mu.Lock()
 		w.sendStateTime = time.Now().Unix()
 		w.mu.Unlock()
-		return
+		return true
 	}
 	params["jobs"] = jobsOut
 	stateURL := w.cfg.ServerHost + "api/monitoring/state/"
@@ -584,30 +602,29 @@ func (w *Worker) sendJobsState() {
 	}
 	w.mu.Lock()
 	if !apiOK {
-		for _, t := range jobsCopy {
-			w.sendStateJobs = upsertSendQueueByJobID(w.sendStateJobs, t)
-		}
+		w.sendStateJobs = prependSendQueueFront(w.sendStateJobs, jobsCopy)
 		w.sendStateTime = time.Now().Unix()
 		w.mu.Unlock()
 		w.cfg.Infof("sendJobsState retry later: http=%d err=%v api_err=%q", code, err, apiErr)
-		return
+		return false
 	}
 	w.sendStateTime = time.Now().Unix()
 	clearTrackedResponses(jobsCopy)
 	w.mu.Unlock()
 	w.cfg.Logf("Finished sendJobsState function")
+	return true
 }
 
-func (w *Worker) sendDockersState() {
+func (w *Worker) sendDockersState() bool {
 	w.mu.Lock()
 	if len(w.sendDockerStateJobs) == 0 {
 		w.sendDockerStateTime = time.Now().Unix()
-		w.sendDockerStateJobs = nil
 		w.mu.Unlock()
-		return
+		return false
 	}
-	dockCopy := w.sendDockerStateJobs
-	w.sendDockerStateJobs = nil
+	batchSize := sendQueueBatchSize(w.cfg.WorkerThreads)
+	var dockCopy []*trackedJob
+	dockCopy, w.sendDockerStateJobs = takeSendQueueFront(w.sendDockerStateJobs, batchSize)
 	w.mu.Unlock()
 
 	w.cfg.Logf("Starting sendDockersState function")
@@ -639,7 +656,7 @@ func (w *Worker) sendDockersState() {
 		w.mu.Lock()
 		w.sendDockerStateTime = time.Now().Unix()
 		w.mu.Unlock()
-		return
+		return true
 	}
 	params["dockers"] = out
 	if w.cfg.DockerDebug {
@@ -655,17 +672,16 @@ func (w *Worker) sendDockersState() {
 	w.cfg.Infof("sendDockersState http=%d api_ok=%v err=%v api_err=%q", code, apiOK, err, apiErr)
 	w.mu.Lock()
 	if !apiOK {
-		for _, t := range dockCopy {
-			w.sendDockerStateJobs = upsertSendQueueByJobID(w.sendDockerStateJobs, t)
-		}
+		w.sendDockerStateJobs = prependSendQueueFront(w.sendDockerStateJobs, dockCopy)
 		w.sendDockerStateTime = time.Now().Unix()
 		w.mu.Unlock()
-		return
+		return false
 	}
 	w.sendDockerStateTime = time.Now().Unix()
 	clearTrackedResponses(dockCopy)
 	w.mu.Unlock()
 	w.cfg.Logf("Finished sendDockersState function")
+	return true
 }
 
 // clearTrackedResponses drops large per-job payloads (notably Docker Engine JSON)
