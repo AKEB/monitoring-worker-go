@@ -139,8 +139,6 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	resp, err := client.Do(req)
 	if err != nil {
 		respMap["status"] = 0
-		respMap["status_code"] = 500
-		respMap["response_error_num"] = 500
 		respMap["response_error"] = err.Error()
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		cfg.LogHTTPFailure("docker", http.MethodGet, reqURL, 0, err, nil)
