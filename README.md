@@ -56,6 +56,8 @@ go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 
 В `.env` включите **`DOCKER_DEBUG=true`** (отдельно от `DEBUG`): в stderr пойдут строки с префиксом `[docker]` — URL запроса, TLS/mTLS (наличие PEM, ошибки `LoadX509KeyPair`), прокси, код ответа, превью тела. Это повторяет идею `DOCKER_DEBUG` в PHP `docker.php`.
 
+**Ошибки HTTP всегда в stderr** (без `DEBUG`): при статусе вне 200–299 или сбое соединения — строки `[http-error][server|docker|monitor|exporter]` с методом, URL, `http_status`, `transport_err`; превью `body` — только при `DEBUG=true`. Для ответов monitoring API с `status != 0` — `[api-error][server]` (`api_error` всегда, `body` только с `DEBUG`). В Docker: `docker logs <container>`; в compose: `docker compose logs -f worker`.
+
 Если в задаче **`host` — IP**, а сертификат демона выдан на **DNS** (например `*.example.com`), в JSON задачи можно передать **`tls_server_name`** — оно попадёт в SNI и в проверку имени, при этом URL к Engine API по-прежнему строится из `host` и `port`. Ошибка вида `x509: certificate signed by unknown authority` при уже загруженном `tls_ca_file` обычно означает неверную или неполную цепочку в PEM (нужен CA/промежуточные, которыми реально подписан **серверный** сертификат демона, а не только клиентский mTLS).
 
 ## CI и релизы

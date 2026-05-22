@@ -15,11 +15,16 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false -trimpath \
 	-ldflags "-s -w -X monitoring-worker-go/internal/buildinfo.Version=${VERSION}" \
 	-o /monitoring-worker ./cmd/worker/
 
-# CA bundle + zoneinfo for HTTPS and TZ / time.LoadLocation (no shell in final image).
+# CA bundle, zoneinfo, and ping (iputils) for RunPing jobs.
 FROM alpine:3.20 AS runtime
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata iputils \
+	&& mkdir -p /deps/bin /deps/lib /deps/usr/lib \
+	&& cp -a /bin/ping /deps/bin/ \
+	&& cp -a /lib/ld-musl-*.so.1 /deps/lib/ \
+	&& cp -a /usr/lib/libcap.so* /deps/usr/lib/
 
 FROM scratch
+COPY --from=runtime /deps /
 COPY --from=runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=runtime /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build /monitoring-worker /monitoring-worker

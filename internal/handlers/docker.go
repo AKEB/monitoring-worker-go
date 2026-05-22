@@ -31,7 +31,8 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	if job.TLS {
 		scheme = "https"
 	}
-	reqURL := scheme + "://" + job.Host + ":" + portStr + "/containers/json?all=true"
+	host := normalizeDockerHost(job.Host)
+	reqURL := scheme + "://" + host + ":" + portStr + "/containers/json?all=true"
 
 	cfg.DockerLogf("job job_id=%d monitor id=%d host=%q port=%s tls=%v timeout_sec=%d",
 		job.JobID, job.ID, job.Host, portStr, job.TLS, timeout)
@@ -163,6 +164,7 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 		respMap["response_error_num"] = 500
 		respMap["response_error"] = err.Error()
 		respMap["total_time_us"] = time.Since(start).Microseconds()
+		cfg.LogHTTPFailure("docker", http.MethodGet, reqURL, 0, err, nil)
 		cfg.DockerLogf("HTTP Do error: %v", err)
 		return respMap
 	}
@@ -175,14 +177,20 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	respMap["response_error_num"] = 0
 	respMap["response_error"] = ""
 	respMap["total_time_us"] = totalUS
-	if resp.StatusCode >= 500 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		cfg.LogHTTPFailure("docker", http.MethodGet, reqURL, resp.StatusCode, nil, b)
 		respMap["status"] = 0
-	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if respMap["response_error"] == "" {
+			respMap["response_error"] = fmt.Sprintf("unexpected HTTP status %d", resp.StatusCode)
+		}
+	} else {
 		states, ok := dockerContainersForState(bodyStr, totalUS)
 		if !ok {
 			respMap["status"] = 0
 			respMap["response_error"] = "invalid Docker Engine containers/json response"
+		} else if len(states) == 0 {
+			respMap["status"] = 0
+			respMap["response_error"] = "no containers in Docker Engine response"
 		} else {
 			respMap["container_states"] = states
 		}
@@ -233,6 +241,83 @@ func truncateForLog(s string, max int) string {
 		return s
 	}
 	return s[:max] + fmt.Sprintf(" … (truncated, total %d)", len(s))
+}
+
+// normalizeDockerHost strips schemes/extra ports and brackets IPv6 for URL building.
+func normalizeDockerHost(host string) string {
+	host = strings.TrimSpace(host)
+	for _, p := range []string{"tcp://", "https://", "http://"} {
+		host = strings.TrimPrefix(host, p)
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); ip != nil && strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
+}
+
+// DockerContainerStatesCount returns how many containers are in a worker response map.
+func DockerContainerStatesCount(resp map[string]any) int {
+	if resp == nil {
+		return 0
+	}
+	v, ok := resp["container_states"]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case []map[string]any:
+		return len(t)
+	case []any:
+		return len(t)
+	default:
+		return 0
+	}
+}
+
+// DockerResponseAcceptedByServer matches State.php updateDockerState() requirements.
+func DockerResponseAcceptedByServer(resp map[string]any) bool {
+	if resp == nil {
+		return false
+	}
+	switch s := resp["status"].(type) {
+	case int:
+		if s != 1 {
+			return false
+		}
+	case int64:
+		if s != 1 {
+			return false
+		}
+	case float64:
+		if int(s) != 1 {
+			return false
+		}
+	default:
+		return false
+	}
+	code, ok := resp["status_code"]
+	if !ok {
+		return false
+	}
+	var statusCode int
+	switch c := code.(type) {
+	case int:
+		statusCode = c
+	case int64:
+		statusCode = int(c)
+	case float64:
+		statusCode = int(c)
+	default:
+		return false
+	}
+	if statusCode < 200 || statusCode >= 300 {
+		return false
+	}
+	return DockerContainerStatesCount(resp) > 0
 }
 
 func toPort(p int) string {

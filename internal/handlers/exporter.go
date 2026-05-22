@@ -3,6 +3,7 @@ package handlers
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -49,9 +50,20 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 		respMap["response_error"] = err.Error()
 		respMap["result"] = "0"
 		respMap["total_time_us"] = time.Since(start).Microseconds()
+		cfg.LogHTTPFailure("exporter", http.MethodGet, url, 0, err, nil)
 		return respMap
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 800))
+		cfg.LogHTTPFailure("exporter", http.MethodGet, url, resp.StatusCode, nil, errBody)
+		respMap["status"] = 0
+		respMap["status_code"] = resp.StatusCode
+		respMap["response_error"] = fmt.Sprintf("unexpected HTTP status %d", resp.StatusCode)
+		respMap["result"] = "0"
+		respMap["total_time_us"] = time.Since(start).Microseconds()
+		return respMap
+	}
 	metrics := parseMetricsLines(io.LimitReader(resp.Body, 4*1024*1024))
 	respMap["status_code"] = resp.StatusCode
 	respMap["response_error_num"] = 0

@@ -85,6 +85,7 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 		respMap["response_error"] = err.Error()
 		respMap["response_error_num"] = 2
 		respMap["total_time_us"] = time.Since(start).Microseconds()
+		cfg.LogHTTPFailure("monitor", method, job.URL, 0, err, nil)
 		return respMap
 	}
 	defer resp.Body.Close()
@@ -93,15 +94,22 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 
 	var bodyStr string
+	var errBody []byte
 	if job.Type == JobTypeHTTPJSON {
 		readLimit := int64(2 << 20)
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
 		bodyStr = string(body)
+		errBody = body
+	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ = io.ReadAll(io.LimitReader(resp.Body, 800))
 	} else {
 		_, _ = io.Copy(io.Discard, resp.Body)
 	}
 
 	respMap["status_code"] = resp.StatusCode
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		cfg.LogHTTPFailure("monitor", method, job.URL, resp.StatusCode, nil, errBody)
+	}
 	respMap["response_error"] = ""
 	respMap["response_error_num"] = 0
 	respMap["total_time_us"] = time.Since(start).Microseconds()
