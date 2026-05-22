@@ -34,7 +34,7 @@ go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 
 `PROTOCOL_VERSION` по умолчанию `2.0`; значения `1.0` и пустая строка не принимаются. Сервер отвечает ошибкой, если версия протокола ниже 2.0.
 
-- **get/** — только нужные поля задач; Docker PEM по `docker_tls_sync` + `docker_update_time`.
+- **get/** — только нужные поля задач; Docker PEM по `docker_tls_sync` + `docker_update_time` (воркер кэширует PEM и подставляет его, если сервер не прислал `tls_*`).
 - **state/** — без `response_body`; Docker — только `container_states`; HTTPS — `cert_expire` для SSL-алертов.
 - Ответы API без `server_time` / `server_microtime`.
 - **`CURL_DEBUG`** — лог HTTP (метод, URL, код ответа, прокси); **`proxy_type`** как в PHP cURL (HTTP/SOCKS5).

@@ -368,7 +368,9 @@ func dockerJobHasCachedTLS(j model.Job) bool {
 	if !j.TLS {
 		return true
 	}
-	return j.TLSCAFile != "" || (j.TLSCertificate != "" && j.TLSKey != "")
+	// Claim docker_tls_sync only when custom CA is cached (self-signed daemons).
+	// mTLS-only without CA must not suppress server PEM resend.
+	return j.TLSCAFile != ""
 }
 
 func (w *Worker) getJobs() {

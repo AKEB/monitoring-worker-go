@@ -72,12 +72,11 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MergeDockerTLS keeps cached PEM material when the server omits tls_* on unchanged docker_update_time.
+// MergeDockerTLS keeps cached PEM when the server omits tls_* (docker_tls_sync).
+// PEM is preserved across docker_update_time bumps — the server may omit tls_* even when
+// dockers.update_time changed (e.g. after a successful state save) while knownRevision matches.
 func MergeDockerTLS(prev, incoming Job) Job {
-	if incoming.DockerUpdateTime <= 0 {
-		return incoming
-	}
-	if prev.DockerUpdateTime != incoming.DockerUpdateTime || prev.ID != incoming.ID {
+	if prev.ID != 0 && incoming.ID != 0 && prev.ID != incoming.ID {
 		return incoming
 	}
 	if incoming.TLSCAFile == "" && prev.TLSCAFile != "" {
@@ -88,6 +87,12 @@ func MergeDockerTLS(prev, incoming Job) Job {
 	}
 	if incoming.TLSKey == "" && prev.TLSKey != "" {
 		incoming.TLSKey = prev.TLSKey
+	}
+	if incoming.TLSServerName == "" && prev.TLSServerName != "" {
+		incoming.TLSServerName = prev.TLSServerName
+	}
+	if incoming.DockerUpdateTime <= 0 && prev.DockerUpdateTime > 0 {
+		incoming.DockerUpdateTime = prev.DockerUpdateTime
 	}
 	return incoming
 }
