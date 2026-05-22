@@ -72,11 +72,11 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 			raw, err := decodePEMField(job.TLSCAFile)
 			if err != nil {
 				cfg.DockerLogf("decode tls_ca_file: %v", err)
-				cfg.Infof("[docker-tls] job_id=%d docker_id=%d: tls_ca_file decode failed: %v", job.JobID, job.ID, err)
+				cfg.Errorf("[docker-tls] job_id=%d docker_id=%d: tls_ca_file decode failed: %v", job.JobID, job.ID, err)
 			} else if len(raw) > 0 {
 				if ok := tlsCfg.RootCAs.AppendCertsFromPEM(raw); !ok {
 					cfg.DockerLogf("AppendCertsFromPEM(CA): no certs parsed from PEM")
-					cfg.Infof("[docker-tls] job_id=%d docker_id=%d: tls_ca_file is not a valid CA PEM", job.JobID, job.ID)
+					cfg.Errorf("[docker-tls] job_id=%d docker_id=%d: tls_ca_file is not a valid CA PEM", job.JobID, job.ID)
 				} else {
 					caLoaded = true
 					cfg.DockerLogf("loaded CA PEM into pool (%d bytes)", len(raw))
@@ -84,19 +84,19 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 			}
 		}
 		if !caLoaded {
-			cfg.Infof("[docker-tls] job_id=%d docker_id=%d host=%q: no custom CA loaded (tls_ca_file empty or invalid; upload CA in Docker host settings or re-save the host on server)", job.JobID, job.ID, job.Host)
+			cfg.DockerLogf("no custom CA loaded for host=%q (tls_ca_file empty or invalid; upload CA in Docker host settings or re-save the host on server)", job.Host)
 		}
 		needMTLS := job.TLSCertificate != "" || job.TLSKey != ""
 		if needMTLS {
 			if job.TLSCertificate == "" || job.TLSKey == "" {
 				cfg.DockerLogf("mTLS: tls_certificate or tls_key missing on job")
-				cfg.Infof("[docker-tls] job_id=%d docker_id=%d: mTLS requires both tls_certificate and tls_key (cert=%v key=%v)",
+				cfg.Errorf("[docker-tls] job_id=%d docker_id=%d: mTLS requires both tls_certificate and tls_key (cert=%v key=%v)",
 					job.JobID, job.ID, job.TLSCertificate != "", job.TLSKey != "")
 			} else {
 				c, err := loadMTLSKeyPair(job.TLSCertificate, job.TLSKey)
 				if err != nil {
 					cfg.DockerLogf("loadMTLSKeyPair: %v", err)
-					cfg.Infof("[docker-tls] job_id=%d docker_id=%d: mTLS client cert failed: %v", job.JobID, job.ID, err)
+					cfg.Errorf("[docker-tls] job_id=%d docker_id=%d: mTLS client cert failed: %v", job.JobID, job.ID, err)
 				} else {
 					tlsCfg.Certificates = []tls.Certificate{c}
 					cfg.DockerLogf("client certificate+key loaded (in-memory)")

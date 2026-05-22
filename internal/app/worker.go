@@ -177,7 +177,7 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 					t.cancel()
 				}
 				waitDone(t.done, 3*time.Second, func() {
-					w.cfg.Logf("job_id %d: handler did not exit after cancel, continuing", id)
+					w.cfg.Errorf("job_id %d: handler did not exit after cancel, continuing", id)
 				})
 				t.running = false
 				t.cancel = nil
@@ -197,7 +197,7 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 					t.cancel = nil
 				}
 				if responseIndicatesFailure(t.response, j.Type) {
-					w.cfg.Logf("Finish error job_id: %d", id)
+					w.cfg.Errorf("Finish error job_id: %d", id)
 					w.bumpScheduleAfterFailureOrTimeout(j, now)
 					t.state = "finished with error"
 				} else {
@@ -387,24 +387,24 @@ func (w *Worker) getJobs() {
 	getURL := w.cfg.ServerHost + "api/monitoring/get/"
 	body, code, err := w.postMonitoring(getURL, payload)
 	if err != nil || code != 200 || len(body) == 0 {
-		w.cfg.Logf("getJobs HTTP err=%v code=%d", err, code)
+		w.cfg.Errorf("getJobs HTTP err=%v code=%d", err, code)
 		time.Sleep(10 * time.Second)
 		return
 	}
 	w.cfg.LogMonitoringAPIError("server", http.MethodPost, getURL, code, body)
 	var parsed getJobsJSON
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		w.cfg.Logf("getJobs JSON: %v", err)
+		w.cfg.Errorf("getJobs JSON: %v", err)
 		time.Sleep(10 * time.Second)
 		return
 	}
 	if parsed.Error != "" {
-		w.cfg.Logf("getJobs error field: %s", parsed.Error)
+		w.cfg.Errorf("getJobs error field: %s", parsed.Error)
 		time.Sleep(10 * time.Second)
 		return
 	}
 	if parsed.Status != 0 {
-		w.cfg.Logf("getJobs status=%d", parsed.Status)
+		w.cfg.Errorf("getJobs status=%d", parsed.Status)
 		time.Sleep(10 * time.Second)
 		return
 	}
@@ -430,7 +430,7 @@ func (w *Worker) getJobs() {
 	w.jobSyncLast = time.Now().Unix()
 	w.mu.Unlock()
 
-	w.cfg.Infof("getJobs: %d jobs, %d dockers", len(jobs), len(dockers))
+	w.cfg.Logf("getJobs: %d jobs, %d dockers", len(jobs), len(dockers))
 	w.cfg.Logf("Finished getJobs function")
 }
 
@@ -605,7 +605,7 @@ func (w *Worker) sendJobsState() bool {
 		w.sendStateJobs = prependSendQueueFront(w.sendStateJobs, jobsCopy)
 		w.sendStateTime = time.Now().Unix()
 		w.mu.Unlock()
-		w.cfg.Infof("sendJobsState retry later: http=%d err=%v api_err=%q", code, err, apiErr)
+		w.cfg.Errorf("sendJobsState retry later: http=%d err=%v api_err=%q", code, err, apiErr)
 		return false
 	}
 	w.sendStateTime = time.Now().Unix()
@@ -640,9 +640,10 @@ func (w *Worker) sendDockersState() bool {
 		}
 		n := handlers.DockerContainerStatesCount(t.response)
 		accepted := handlers.DockerResponseAcceptedByServer(t.response)
-		w.cfg.Infof("docker POST job_id=%d docker_id=%d host=%q accepted=%v containers=%d", t.job.JobID, t.job.ID, t.job.Host, accepted, n)
 		if !accepted {
 			w.logDockerPollFailure(t.job.JobID, &t.job, t.response)
+		} else {
+			w.cfg.Logf("docker POST job_id=%d docker_id=%d host=%q accepted=true containers=%d", t.job.JobID, t.job.ID, t.job.Host, n)
 		}
 		w.cfg.Logf("Sending dockers job %d docker %d", t.job.JobID, t.job.ID)
 		out = append(out, map[string]any{
@@ -659,9 +660,9 @@ func (w *Worker) sendDockersState() bool {
 		return true
 	}
 	params["dockers"] = out
-	if w.cfg.DockerDebug {
+	if w.cfg.Debug {
 		b, _ := json.Marshal(params)
-		w.cfg.Logf("Sending data: %s", string(b))
+		w.cfg.Logf("sendDockersState payload: %s", string(b))
 	}
 	stateURL := w.cfg.ServerHost + "api/monitoring/state/"
 	body, code, err := w.postMonitoring(stateURL, params)
@@ -669,7 +670,11 @@ func (w *Worker) sendDockersState() bool {
 	if !apiOK && code >= 200 && code < 300 {
 		w.cfg.LogMonitoringAPIError("server", http.MethodPost, stateURL, code, body)
 	}
-	w.cfg.Infof("sendDockersState http=%d api_ok=%v err=%v api_err=%q", code, apiOK, err, apiErr)
+	if !apiOK {
+		w.cfg.Errorf("sendDockersState failed: http=%d err=%v api_err=%q", code, err, apiErr)
+	} else {
+		w.cfg.Logf("sendDockersState http=%d api_ok=true", code)
+	}
 	w.mu.Lock()
 	if !apiOK {
 		w.sendDockerStateJobs = prependSendQueueFront(w.sendDockerStateJobs, dockCopy)
@@ -699,8 +704,8 @@ func (w *Worker) logDockerPollFailure(jobID int, j *model.Job, resp map[string]a
 		return
 	}
 	errMsg, _ := resp["response_error"].(string)
-	w.cfg.Infof(
-		"docker poll NOT saved by server job_id=%d docker_id=%d host=%q tls=%v status=%v code=%v err=%q containers=%d (need status=1, HTTP 2xx, non-empty container_states; enable DOCKER_DEBUG=true)",
+	w.cfg.Errorf(
+		"docker poll NOT saved by server job_id=%d docker_id=%d host=%q tls=%v status=%v code=%v err=%q containers=%d (need status=1, HTTP 2xx, non-empty container_states; enable DOCKER_DEBUG=true for request/response details)",
 		jobID, j.ID, j.Host, j.TLS,
 		resp["status"], resp["status_code"], errMsg,
 		handlers.DockerContainerStatesCount(resp),

@@ -88,11 +88,11 @@ func (c *Config) Logf(format string, args ...any) {
 	if !c.Debug {
 		return
 	}
-	fmt.Printf("%s%s\n", c.logPrefix(), fmt.Sprintf(format, args...))
+	fmt.Fprintf(os.Stderr, "%s%s\n", c.logPrefix(), fmt.Sprintf(format, args...))
 }
 
-// Infof always writes to stderr (docker/sync issues visible without DEBUG=true).
-func (c *Config) Infof(format string, args ...any) {
+// Errorf writes operational errors to stderr (always, independent of DEBUG).
+func (c *Config) Errorf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "%s%s\n", c.logPrefix(), fmt.Sprintf(format, args...))
 }
 

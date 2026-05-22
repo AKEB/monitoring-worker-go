@@ -37,7 +37,7 @@ func (c *Config) LogMonitoringAPIError(kind, method, requestURL string, httpStat
 		errText = fmt.Sprintf("api status=%d", parsed.Status)
 	}
 	safeURL := redactURLCredentials(requestURL)
-	if c.Debug && len(responseBody) > 0 {
+	if c.httpErrorBodyEnabled("server") && len(responseBody) > 0 {
 		fmt.Fprintf(os.Stderr, "%s[api-error][%s] %s %s http_status=%d api_status=%d api_error=%q body=%q\n",
 			c.logPrefix(), kind, method, safeURL, httpStatus, parsed.Status, errText,
 			truncateHTTPLogBody(string(responseBody)),
@@ -67,10 +67,23 @@ func (c *Config) formatHTTPFailureLine(kind, method, requestURL string, httpStat
 	} else {
 		b.WriteString(" http_status=0")
 	}
-	if c.Debug && len(responseBody) > 0 {
+	if c.httpErrorBodyEnabled(kind) && len(responseBody) > 0 {
 		fmt.Fprintf(&b, " body=%q", truncateHTTPLogBody(string(responseBody)))
 	}
 	return b.String()
+}
+
+func (c *Config) httpErrorBodyEnabled(kind string) bool {
+	switch kind {
+	case "docker":
+		return c.DockerDebug
+	case "monitor", "exporter":
+		return c.CurlDebug
+	case "server":
+		return c.Debug
+	default:
+		return c.Debug
+	}
 }
 
 func redactURLCredentials(raw string) string {
