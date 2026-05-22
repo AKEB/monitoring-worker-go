@@ -1,17 +1,26 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.22-alpine AS build
+
+# Cross-compile on the CI host (amd64); no QEMU during go build.
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+RUN apk add --no-cache ca-certificates
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=local
+ARG TARGETOS
+ARG TARGETARCH
 ENV CGO_ENABLED=0
-RUN go build -buildvcs=false -trimpath \
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false -trimpath \
 	-ldflags "-s -w -X monitoring-worker-go/internal/buildinfo.Version=${VERSION}" \
 	-o /monitoring-worker ./cmd/worker/
 
-FROM alpine:3.20
+# CA bundle + zoneinfo for HTTPS and TZ / time.LoadLocation (no shell in final image).
+FROM alpine:3.20 AS runtime
 RUN apk add --no-cache ca-certificates tzdata
-WORKDIR /opt/monitoring-worker
-COPY --from=build /monitoring-worker /usr/local/bin/monitoring-worker
-ENTRYPOINT ["/usr/local/bin/monitoring-worker"]
+
+FROM scratch
+COPY --from=runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=runtime /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=build /monitoring-worker /monitoring-worker
+ENTRYPOINT ["/monitoring-worker"]

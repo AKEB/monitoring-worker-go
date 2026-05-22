@@ -84,7 +84,21 @@ func applySOCKS5Proxy(tr *http.Transport, u *url.URL, logf func(string, ...any))
 		if cd, ok := dialer.(proxy.ContextDialer); ok {
 			return cd.DialContext(ctx, network, addr)
 		}
-		return dialer.Dial(network, addr)
+		type dialResult struct {
+			conn net.Conn
+			err  error
+		}
+		ch := make(chan dialResult, 1)
+		go func() {
+			conn, err := dialer.Dial(network, addr)
+			ch <- dialResult{conn, err}
+		}()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case r := <-ch:
+			return r.conn, r.err
+		}
 	}
 	if logf != nil {
 		logf("proxy SOCKS5 via %s", u.Host)

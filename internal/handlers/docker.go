@@ -139,7 +139,7 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 		proxyType = cfg.ProxyType
 	}
 	configureTransportProxy(tr, proxyHost, proxyType, cfg.DockerLogf)
-	tr.IdleConnTimeout = 90 * time.Second
+	configureTransportTimeouts(tr, timeout)
 	defer tr.CloseIdleConnections()
 
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}

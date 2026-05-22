@@ -176,9 +176,14 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 				if t.cancel != nil {
 					t.cancel()
 				}
-				<-t.done
+				waitDone(t.done, 3*time.Second, func() {
+					w.cfg.Logf("job_id %d: handler did not exit after cancel, continuing", id)
+				})
 				t.running = false
 				t.cancel = nil
+				if t.response == nil {
+					t.response = handlers.TimeoutResponse()
+				}
 				w.bumpScheduleAfterFailureOrTimeout(j, now)
 				t.state = "timeout"
 				w.enqueueSend(t, docker)
@@ -264,9 +269,26 @@ func (w *Worker) runJob(id int, docker bool, t *trackedJob, ctx context.Context,
 
 	resp := run(ctx, jobCopy)
 	if ctx.Err() == context.DeadlineExceeded {
-		t.response = nil
+		if resp == nil {
+			t.response = handlers.TimeoutResponse()
+		} else {
+			t.response = resp
+		}
 	} else {
 		t.response = resp
+	}
+}
+
+func waitDone(done <-chan struct{}, maxWait time.Duration, onTimeout func()) {
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(maxWait):
+		if onTimeout != nil {
+			onTimeout()
+		}
 	}
 }
 
@@ -537,12 +559,15 @@ func (w *Worker) sendJobsState() {
 		return
 	}
 	params["jobs"] = jobsOut
-	body, code, _ := w.postMonitoring(w.cfg.ServerHost+"api/monitoring/state/", params)
+	body, code, err := w.postMonitoring(w.cfg.ServerHost+"api/monitoring/state/", params)
 	w.mu.Lock()
-	if code != 200 || len(body) == 0 {
+	if err != nil || code != 200 || len(body) == 0 {
+		for _, t := range jobsCopy {
+			w.sendStateJobs = upsertSendQueueByJobID(w.sendStateJobs, t)
+		}
 		w.sendStateTime = time.Now().Unix()
 		w.mu.Unlock()
-		w.cfg.Logf("Finished sendJobsState function (non-200)")
+		w.cfg.Logf("Finished sendJobsState function (retry later): err=%v code=%d", err, code)
 		return
 	}
 	w.sendStateTime = time.Now().Unix()
@@ -593,10 +618,13 @@ func (w *Worker) sendDockersState() {
 		b, _ := json.Marshal(params)
 		w.cfg.Logf("Sending data: %s", string(b))
 	}
-	body, code, _ := w.postMonitoring(w.cfg.ServerHost+"api/monitoring/state/", params)
-	w.cfg.Logf("sendDockersState code=%d", code)
+	body, code, err := w.postMonitoring(w.cfg.ServerHost+"api/monitoring/state/", params)
+	w.cfg.Logf("sendDockersState code=%d err=%v", code, err)
 	w.mu.Lock()
-	if code != 200 || len(body) == 0 {
+	if err != nil || code != 200 || len(body) == 0 {
+		for _, t := range dockCopy {
+			w.sendDockerStateJobs = upsertSendQueueByJobID(w.sendDockerStateJobs, t)
+		}
 		w.sendDockerStateTime = time.Now().Unix()
 		w.mu.Unlock()
 		return
@@ -622,7 +650,9 @@ func (w *Worker) postMonitoring(url string, payload any) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -638,7 +668,7 @@ func (w *Worker) postMonitoring(url string, payload any) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
 	return body, resp.StatusCode, err
 }
 

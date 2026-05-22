@@ -29,7 +29,7 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		return respMap
 	}
-	tr := &http.Transport{IdleConnTimeout: 90 * time.Second}
+	tr := &http.Transport{}
 	defer tr.CloseIdleConnections()
 	cfg := config.Get()
 	proxyHost := job.ProxyHost
@@ -39,6 +39,7 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 		proxyType = cfg.ProxyType
 	}
 	configureTransportProxy(tr, proxyHost, proxyType, cfg.CurlLogf)
+	configureTransportTimeouts(tr, timeout)
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -51,7 +52,7 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 		return respMap
 	}
 	defer resp.Body.Close()
-	metrics := parseMetricsLines(resp.Body)
+	metrics := parseMetricsLines(io.LimitReader(resp.Body, 4*1024*1024))
 	respMap["status_code"] = resp.StatusCode
 	respMap["response_error_num"] = 0
 	respMap["response_error"] = ""

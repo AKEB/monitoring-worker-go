@@ -27,11 +27,9 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	verify := truthy(job.SSLVerify, true)
 	verifyHost := truthy(job.SSLVerifyHost, true)
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: !(verify && verifyHost), MinVersion: tls.VersionTLS12},
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: clientTimeout,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: !(verify && verifyHost), MinVersion: tls.VersionTLS12},
+		ForceAttemptHTTP2: true,
+		MaxIdleConns:      10,
 	}
 	defer tr.CloseIdleConnections()
 	cfg := config.Get()
@@ -43,6 +41,7 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 	curlLog := func(format string, args ...any) { cfg.CurlLogf(format, args...) }
 	configureTransportProxy(tr, proxyHost, proxyType, curlLog)
+	configureTransportTimeouts(tr, timeoutSec)
 	maxRedir := job.MaxRedirects
 	if maxRedir <= 0 {
 		maxRedir = 10
