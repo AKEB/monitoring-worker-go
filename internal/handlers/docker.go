@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -50,13 +49,6 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 		cfg.DockerLogf("proxy: none")
 	}
 
-	var cleanup []string
-	defer func() {
-		for _, p := range cleanup {
-			_ = os.Remove(p)
-		}
-	}()
-
 	var tr *http.Transport
 	if job.TLS {
 		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
@@ -94,39 +86,24 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 		if !caLoaded {
 			cfg.Infof("[docker-tls] job_id=%d docker_id=%d host=%q: no custom CA loaded (tls_ca_file empty or invalid; upload CA in Docker host settings or re-save the host on server)", job.JobID, job.ID, job.Host)
 		}
-		var certFile, keyFile string
-		if job.TLSCertificate != "" {
-			raw, err := decodePEMField(job.TLSCertificate)
-			if err != nil {
-				cfg.DockerLogf("decode tls_certificate: %v", err)
-			} else if len(raw) > 0 {
-				if f := writeTempPEM("cert", raw); f != "" {
-					cleanup = append(cleanup, f)
-					certFile = f
-				}
-			}
-		}
-		if job.TLSKey != "" {
-			raw, err := decodePEMField(job.TLSKey)
-			if err != nil {
-				cfg.DockerLogf("decode tls_key: %v", err)
-			} else if len(raw) > 0 {
-				if f := writeTempPEM("key", raw); f != "" {
-					cleanup = append(cleanup, f)
-					keyFile = f
-				}
-			}
-		}
-		if certFile != "" && keyFile != "" {
-			c, err := tls.LoadX509KeyPair(certFile, keyFile)
-			if err != nil {
-				cfg.DockerLogf("LoadX509KeyPair: %v", err)
+		needMTLS := job.TLSCertificate != "" || job.TLSKey != ""
+		if needMTLS {
+			if job.TLSCertificate == "" || job.TLSKey == "" {
+				cfg.DockerLogf("mTLS: tls_certificate or tls_key missing on job")
+				cfg.Infof("[docker-tls] job_id=%d docker_id=%d: mTLS requires both tls_certificate and tls_key (cert=%v key=%v)",
+					job.JobID, job.ID, job.TLSCertificate != "", job.TLSKey != "")
 			} else {
-				tlsCfg.Certificates = []tls.Certificate{c}
-				cfg.DockerLogf("client certificate+key loaded")
+				c, err := loadMTLSKeyPair(job.TLSCertificate, job.TLSKey)
+				if err != nil {
+					cfg.DockerLogf("loadMTLSKeyPair: %v", err)
+					cfg.Infof("[docker-tls] job_id=%d docker_id=%d: mTLS client cert failed: %v", job.JobID, job.ID, err)
+				} else {
+					tlsCfg.Certificates = []tls.Certificate{c}
+					cfg.DockerLogf("client certificate+key loaded (in-memory)")
+				}
 			}
 		} else {
-			cfg.DockerLogf("client cert/key: certFile=%q keyFile=%q (both needed for mTLS)", certFile, keyFile)
+			cfg.DockerLogf("mTLS: no client cert/key on job (daemon may require tls_certificate+tls_key)")
 		}
 		tr = &http.Transport{TLSClientConfig: tlsCfg}
 	} else {
@@ -327,20 +304,6 @@ func toPort(p int) string {
 		return "2375"
 	}
 	return strconv.Itoa(p)
-}
-
-func writeTempPEM(suffix string, data []byte) string {
-	f, err := os.CreateTemp("", "mw-docker-*_"+suffix+".pem")
-	if err != nil {
-		return ""
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		return ""
-	}
-	_ = f.Close()
-	return f.Name()
 }
 
 // dockerContainersForState builds the compact payload stored by monitoring State.php

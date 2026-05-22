@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"crypto/tls"
 	"encoding/base64"
+	"fmt"
 	"strings"
 )
 
@@ -15,4 +17,20 @@ func decodePEMField(s string) ([]byte, error) {
 		return []byte(s), nil
 	}
 	return base64.StdEncoding.DecodeString(s)
+}
+
+// loadMTLSKeyPair loads client certificate+key from PEM (no temp files; required for scratch images without /tmp).
+func loadMTLSKeyPair(certField, keyField string) (tls.Certificate, error) {
+	certPEM, err := decodePEMField(certField)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("tls_certificate: %w", err)
+	}
+	keyPEM, err := decodePEMField(keyField)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("tls_key: %w", err)
+	}
+	if len(certPEM) == 0 || len(keyPEM) == 0 {
+		return tls.Certificate{}, fmt.Errorf("tls_certificate or tls_key empty after decode")
+	}
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
