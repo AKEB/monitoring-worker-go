@@ -339,9 +339,20 @@ func (w *Worker) dockerTLSSyncLocked() map[string]int64 {
 		if t == nil || t.job.ID <= 0 || t.job.DockerUpdateTime <= 0 {
 			continue
 		}
+		// Do not claim TLS revision without cached PEM — forces server to resend tls_* after worker restart.
+		if t.job.TLS && !dockerJobHasCachedTLS(t.job) {
+			continue
+		}
 		out[strconv.Itoa(t.job.ID)] = t.job.DockerUpdateTime
 	}
 	return out
+}
+
+func dockerJobHasCachedTLS(j model.Job) bool {
+	if !j.TLS {
+		return true
+	}
+	return j.TLSCAFile != "" || (j.TLSCertificate != "" && j.TLSKey != "")
 }
 
 func (w *Worker) getJobs() {

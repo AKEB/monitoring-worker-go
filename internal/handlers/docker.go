@@ -75,29 +75,30 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 			tlsCfg.RootCAs = x509.NewCertPool()
 			cfg.DockerLogf("system cert pool: %v, using empty pool", err)
 		}
+		caLoaded := false
 		if job.TLSCAFile != "" {
-			raw, err := base64.StdEncoding.DecodeString(job.TLSCAFile)
+			raw, err := decodePEMField(job.TLSCAFile)
 			if err != nil {
-				cfg.DockerLogf("decode tls_ca_file (base64): %v", err)
+				cfg.DockerLogf("decode tls_ca_file: %v", err)
+				cfg.Infof("[docker-tls] job_id=%d docker_id=%d: tls_ca_file decode failed: %v", job.JobID, job.ID, err)
 			} else if len(raw) > 0 {
-				if f := writeTempPEM("ca", raw); f != "" {
-					cleanup = append(cleanup, f)
-					if b, err := os.ReadFile(f); err != nil {
-						cfg.DockerLogf("read temp CA file: %v", err)
-					} else if ok := tlsCfg.RootCAs.AppendCertsFromPEM(b); !ok {
-						cfg.DockerLogf("AppendCertsFromPEM(CA): no certs parsed from PEM")
-					} else {
-						cfg.DockerLogf("loaded CA PEM into pool (%d bytes)", len(b))
-					}
+				if ok := tlsCfg.RootCAs.AppendCertsFromPEM(raw); !ok {
+					cfg.DockerLogf("AppendCertsFromPEM(CA): no certs parsed from PEM")
+					cfg.Infof("[docker-tls] job_id=%d docker_id=%d: tls_ca_file is not a valid CA PEM", job.JobID, job.ID)
 				} else {
-					cfg.DockerLogf("failed to create temp file for CA PEM")
+					caLoaded = true
+					cfg.DockerLogf("loaded CA PEM into pool (%d bytes)", len(raw))
 				}
 			}
 		}
+		if !caLoaded {
+			cfg.Infof("[docker-tls] job_id=%d docker_id=%d host=%q: no custom CA loaded (tls_ca_file empty or invalid; upload CA in Docker host settings or re-save the host on server)", job.JobID, job.ID, job.Host)
+		}
 		var certFile, keyFile string
 		if job.TLSCertificate != "" {
-			if raw, err := base64.StdEncoding.DecodeString(job.TLSCertificate); err != nil {
-				cfg.DockerLogf("decode tls_certificate (base64): %v", err)
+			raw, err := decodePEMField(job.TLSCertificate)
+			if err != nil {
+				cfg.DockerLogf("decode tls_certificate: %v", err)
 			} else if len(raw) > 0 {
 				if f := writeTempPEM("cert", raw); f != "" {
 					cleanup = append(cleanup, f)
@@ -106,8 +107,9 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 			}
 		}
 		if job.TLSKey != "" {
-			if raw, err := base64.StdEncoding.DecodeString(job.TLSKey); err != nil {
-				cfg.DockerLogf("decode tls_key (base64): %v", err)
+			raw, err := decodePEMField(job.TLSKey)
+			if err != nil {
+				cfg.DockerLogf("decode tls_key: %v", err)
 			} else if len(raw) > 0 {
 				if f := writeTempPEM("key", raw); f != "" {
 					cleanup = append(cleanup, f)

@@ -93,7 +93,7 @@ func (c *Config) Logf(format string, args ...any) {
 
 // Infof always writes to stderr (docker/sync issues visible without DEBUG=true).
 func (c *Config) Infof(format string, args ...any) {
-	fmt.Printf("%s%s\n", c.logPrefix(), fmt.Sprintf(format, args...))
+	fmt.Fprintf(os.Stderr, "%s%s\n", c.logPrefix(), fmt.Sprintf(format, args...))
 }
 
 // CurlLogf — диагностика HTTP-запросов при CURL_DEBUG=true.
