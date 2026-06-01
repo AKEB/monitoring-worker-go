@@ -76,8 +76,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
-      env:
-        DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
+        env:
+          DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
         with:
           context: .
           push: true
