@@ -1,77 +1,91 @@
-# monitoring-worker-go
+# Monitoring Project Worker
 
-Go-воркер мониторинга для API **protocol 2.0** (monitoring-server ≥ v2.1.0): один бинарник, конфиг из окружения и опционально из `.env` рядом с процессом или с бинарником.
+![Logo](/images/icon.png)
 
-## Сборка
+Go monitoring worker for API **protocol 2.0** (monitoring-server ≥ v2.1.0): single binary, configuration from environment and optionally from `.env` next to the process or the binary.
+
+- Server
+![Docker Pulls](https://img.shields.io/docker/pulls/akeb/monitoring) ![Docker Image Size](https://img.shields.io/docker/image-size/akeb/monitoring/latest) ![Docker Version](https://img.shields.io/docker/v/akeb/monitoring) ![Docker Stars](https://img.shields.io/docker/stars/akeb/monitoring) ![License](https://img.shields.io/badge/license-AGPLv3-blue)
+
+- Worker
+![Docker Pulls](https://img.shields.io/docker/pulls/akeb/monitoring-worker-go) ![Docker Image Size](https://img.shields.io/docker/image-size/akeb/monitoring-worker-go/latest) ![Docker Version](https://img.shields.io/docker/v/akeb/monitoring-worker-go) ![Docker Stars](https://img.shields.io/docker/stars/akeb/monitoring-worker-go) ![License](https://img.shields.io/badge/license-AGPLv3-blue)
+
+Monitoring is a powerful distributed monitoring system with a web interface, built on a "Server-Worker" architecture. The system allows you to monitor the availability and performance of your websites, services, and Docker containers from multiple geographically distributed points.
+
+- [Monitoring website](https://akeb.github.io/monitoring/)
+- [Documentation](https://github.com/AKEB/monitoring/wiki)
+- [Screenshots](https://github.com/AKEB/monitoring/tree/main/screenshots)
+
+## Build
 
 ```bash
 go build -buildvcs=false -o monitoring-worker ./cmd/worker/
 ```
 
-Если репозиторий без полноценного git и сборка ругается на VCS, флаг `-buildvcs=false` обязателен.
+If the repository is not a full git checkout and the build fails on VCS, the `-buildvcs=false` flag is required.
 
-## Запуск
+## Run
 
-1. Скопируйте `.env.example` из PHP-воркера или задайте те же переменные (минимум `SERVER_HOST`, `WORKER_KEY_HASH`).
-2. Положите `.env` в текущую директорию или рядом с исполняемым файлом.
+1. Copy `.env.example` from the PHP worker or set the same variables (at minimum `SERVER_HOST`, `WORKER_KEY_HASH`).
+2. Place `.env` in the current directory or next to the executable.
 3. `./monitoring-worker`
 
-После команды `restart` от сервера процесс завершает цикл и печатает `Exiting` (как в PHP после `loop()`).
+After a `restart` command from the server, the process exits the loop and prints `Exiting` (same as PHP after `loop()`).
 
-### Поведение при частых ошибках (как в PHP)
+### Behavior on frequent errors (same as PHP)
 
-При `finished with error` время следующего запуска выставляется как `update_time = now - repeat_seconds`, поэтому задача снова становится доступной почти сразу. При малом `LOOP_TIMEOUT` в логах с `DEBUG=true` будет много строк `Start`/`Finish` — это ожидаемо; отключите `DEBUG` или увеличьте `LOOP_TIMEOUT`, если шум мешает.
+On `finished with error`, the next run time is set as `update_time = now - repeat_seconds`, so the job becomes available again almost immediately. With a small `LOOP_TIMEOUT` and `DEBUG=true`, logs will show many `Start`/`Finish` lines — this is expected; disable `DEBUG` or increase `LOOP_TIMEOUT` if the noise is a problem.
 
-Очередь отправки на сервер **дедуплицируется по `job_id`**: один актуальный результат на задачу (без сотен повторов в одном POST). Отправка **FIFO с головы очереди** (сначала те, кто дольше ждёт); при большой очереди — батчами за один тик цикла. При ошибке POST неудачный батч возвращается **в начало**, а не в хвост. Запуск проверок — в порядке **самых просроченных** (`update_time + repeat_seconds`), а не случайного обхода map.
+The outbound queue to the server is **deduplicated by `job_id`**: one current result per job (no hundreds of repeats in a single POST). Sends are **FIFO from the head of the queue** (oldest waiters first); with a large queue, batches are sent per loop tick. On POST failure, the failed batch is returned **to the front**, not the tail. Checks are started in order of **most overdue** (`update_time + repeat_seconds`), not random map iteration.
 
-Чтобы после ошибки/таймаута **не запускать проверку снова на каждом тике цикла** (как в PHP при `update_time = now - repeat_seconds`), выставьте `IMMEDIATE_ERROR_RETRY=false`: тогда `update_time = now` и следующий запуск будет не раньше чем через `repeat_seconds`.
+To **avoid re-running a check on every loop tick** after an error/timeout (as PHP does with `update_time = now - repeat_seconds`), set `IMMEDIATE_ERROR_RETRY=false`: then `update_time = now` and the next run will not be sooner than `repeat_seconds`.
 
-## Переменные окружения
+## Environment variables
 
-Смысл и имена совпадают с `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HASH`, `WORKER_THREADS`, `JOBS_GET_TIMEOUT`, `LOOP_TIMEOUT`, `RESPONSE_SEND_TIMEOUT`, `LOGS_WRITE_TIMEOUT`, `PROXY_HOST`, `PROXY_TYPE`, `WORKER_VERSION`, `PROTOCOL_VERSION` (по умолчанию `2.0` — урезанный обмен с сервером), `DEBUG`, `CURL_DEBUG`, `DOCKER_DEBUG`, `IMMEDIATE_ERROR_RETRY` (по умолчанию `true`, как в PHP).
+Names and meaning match `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HASH`, `WORKER_THREADS`, `JOBS_GET_TIMEOUT`, `LOOP_TIMEOUT`, `RESPONSE_SEND_TIMEOUT`, `LOGS_WRITE_TIMEOUT`, `PROXY_HOST`, `PROXY_TYPE`, `WORKER_VERSION`, `PROTOCOL_VERSION` (default `2.0` — reduced exchange with the server), `DEBUG`, `CURL_DEBUG`, `DOCKER_DEBUG`, `IMMEDIATE_ERROR_RETRY` (default `true`, same as PHP).
 
-### Протокол 2.0 (обязателен)
+### Protocol 2.0 (required)
 
-`PROTOCOL_VERSION` по умолчанию `2.0`; значения `1.0` и пустая строка не принимаются. Сервер отвечает ошибкой, если версия протокола ниже 2.0.
+`PROTOCOL_VERSION` defaults to `2.0`; values `1.0` and empty string are not accepted. The server returns an error if the protocol version is below 2.0.
 
-- **get/** — только нужные поля задач; Docker PEM по `docker_tls_sync` + `docker_update_time` (воркер кэширует PEM и подставляет его, если сервер не прислал `tls_*`).
-- **state/** — без `response_body`; Docker — только `container_states`; HTTPS — `cert_expire` для SSL-алертов.
-- Ответы API без `server_time` / `server_microtime`.
-- **`CURL_DEBUG`** — лог HTTP (метод, URL, код ответа, прокси); **`proxy_type`** как в PHP cURL (HTTP/SOCKS5).
-- Перезапуск с сервера: `data.restart` (кнопка в админке воркера на сервере).
+- **get/** — only required job fields; Docker PEM via `docker_tls_sync` + `docker_update_time` (worker caches PEM and supplies it if the server did not send `tls_*`).
+- **state/** — no `response_body`; Docker — only `container_states`; HTTPS — `cert_expire` for SSL alerts.
+- API responses without `server_time` / `server_microtime`.
+- **`CURL_DEBUG`** — HTTP logging (method, URL, response code, proxy); **`proxy_type`** as in PHP cURL (HTTP/SOCKS5).
+- Restart from server: `data.restart` (button in the worker admin UI on the server).
 
-### `WORKER_VERSION` (как в PHP)
+### `WORKER_VERSION` (same as PHP)
 
-В PHP в теле запросов к `/api/monitoring/get/` и `/api/monitoring/state/` уходит поле `worker_version` из **`getenv('WORKER_VERSION')`** (`Config.php`). В Docker-образе PHP то же значение прокидывается через `ARG/ENV WORKER_VERSION` и при сборке переписывается `version.php`, но для рантайма решает именно переменная окружения.
+In PHP, requests to `/api/monitoring/get/` and `/api/monitoring/state/` include `worker_version` from **`getenv('WORKER_VERSION')`** (`Config.php`). In the PHP Docker image the same value is passed via `ARG/ENV WORKER_VERSION` and `version.php` is rewritten at build time, but at runtime the environment variable wins.
 
-В Go:
+In Go:
 
-1. если задан **`WORKER_VERSION`** в окружении или в `.env` — в API уходит он;
-2. иначе — строка из **`-ldflags "-X monitoring-worker-go/internal/buildinfo.Version=..."`** (в GitHub Actions подставляется имя ref: тег `v1.2.3` или `dev-<short sha>`);
-3. иначе — **`local`**, как значение по умолчанию в `monitoring-worker/src/version.php`.
+1. if **`WORKER_VERSION`** is set in the environment or `.env` — that value is sent to the API;
+2. otherwise — the string from **`-ldflags "-X monitoring-worker-go/internal/buildinfo.Version=..."`** (in GitHub Actions this is the ref name: tag `v1.2.3` or `dev-<short sha>`);
+3. otherwise — **`local`**, same as the default in `monitoring-worker/src/version.php`.
 
-Локальная сборка без ldflags и без env: в запросах будет `worker_version: "local"`. Чтобы совпасть с релизом, собирайте с `-ldflags` или задайте `WORKER_VERSION` в `.env`.
+A local build without ldflags and without env will send `worker_version: "local"`. To match a release, build with `-ldflags` or set `WORKER_VERSION` in `.env`.
 
-### Отладка Docker Engine API
+### Docker Engine API debugging
 
-В `.env` включите **`DOCKER_DEBUG=true`** (отдельно от `DEBUG`): в stderr пойдут строки с префиксом `[docker]` — URL запроса, TLS/mTLS (наличие PEM, ошибки `LoadX509KeyPair`), прокси, код ответа, превью тела. Это повторяет идею `DOCKER_DEBUG` в PHP `docker.php`.
+In `.env`, set **`DOCKER_DEBUG=true`** (separate from `DEBUG`): stderr will show lines prefixed with `[docker]` — request URL, TLS/mTLS (PEM presence, `LoadX509KeyPair` errors), proxy, response code, body preview. This mirrors the idea of `DOCKER_DEBUG` in PHP `docker.php`.
 
-**Логирование:** обычные сообщения воркера — только при `DEBUG=true`. Ошибки — всегда в stderr. Превью `body` в `[http-error]` — при `DEBUG` (запросы к monitoring API), `CURL_DEBUG` (monitor/exporter), `DOCKER_DEBUG` (Docker Engine). Ответы monitoring API с `status != 0` — `[api-error][server]` (`api_error` всегда, `body` только с `DEBUG`). В Docker: `docker logs <container>`; в compose: `docker compose logs -f worker`.
+**Logging:** normal worker messages only when `DEBUG=true`. Errors always go to stderr. `body` preview in `[http-error]` — with `DEBUG` (monitoring API requests), `CURL_DEBUG` (monitor/exporter), `DOCKER_DEBUG` (Docker Engine). Monitoring API responses with `status != 0` — `[api-error][server]` (`api_error` always, `body` only with `DEBUG`). In Docker: `docker logs <container>`; in compose: `docker compose logs -f worker`.
 
-Если в задаче **`host` — IP**, а сертификат демона выдан на **DNS** (например `*.example.com`), в JSON задачи можно передать **`tls_server_name`** — оно попадёт в SNI и в проверку имени, при этом URL к Engine API по-прежнему строится из `host` и `port`. Ошибка вида `x509: certificate signed by unknown authority` при уже загруженном `tls_ca_file` обычно означает неверную или неполную цепочку в PEM (нужен CA/промежуточные, которыми реально подписан **серверный** сертификат демона, а не только клиентский mTLS).
+If the job **`host` is an IP** but the daemon certificate is issued for a **DNS name** (e.g. `*.example.com`), you can pass **`tls_server_name`** in the job JSON — it is used for SNI and name verification, while the Engine API URL is still built from `host` and `port`. An error like `x509: certificate signed by unknown authority` with `tls_ca_file` already loaded usually means an incorrect or incomplete PEM chain (you need the CA/intermediates that actually signed the daemon **server** certificate, not only the client mTLS cert).
 
-## CI и релизы
+## CI and releases
 
-Файл `.github/workflows/build.yml`:
+File `.github/workflows/build.yml`:
 
-- на **push** в `main`/`master` и на **pull request** — сборка и артефакт в карточке запуска workflow (как раньше);
-- на **push тега** вида `v1.2.3` — та же сборка плюс **GitHub Release** с вложением `monitoring-worker` (через [softprops/action-gh-release](https://github.com/softprops/action-gh-release)).
+- on **push** to `main`/`master` and on **pull request** — build and artifact in the workflow run (unchanged);
+- on **tag push** like `v1.2.3` — same build plus **GitHub Release** with `monitoring-worker` attached (via [softprops/action-gh-release](https://github.com/softprops/action-gh-release)).
 
-Пример публикации версии:
+Example of publishing a version:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Обычный push в ветку **релиз не создаёт** — только артефакт в Actions.
+A normal branch push **does not create a release** — only an Actions artifact.
