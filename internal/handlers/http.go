@@ -123,6 +123,10 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	if job.Type == JobTypeHTTPJSON {
 		applyJSONCheck(respMap, bodyStr, job)
 	}
+	// Optional response header Log: custom error text for alerts (same contract as External).
+	if logMsg := formatResponseLogHeader(resp.Header); logMsg != "" {
+		respMap["response_error"] = logMsg
+	}
 	return respMap
 }
 
@@ -173,6 +177,34 @@ func parseHeaders(raw string) []string {
 		out = append(out, l)
 	}
 	return out
+}
+
+// formatResponseLogHeader reads optional Log response header from the checked resource.
+// Returns "Log: …" for response_error / notifications, or "" if absent.
+func formatResponseLogHeader(h http.Header) string {
+	if h == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(h.Get("Log"))
+	if raw == "" {
+		return ""
+	}
+	raw = strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' {
+			return -1
+		}
+		return r
+	}, raw)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	const maxRunes = 240
+	runes := []rune(raw)
+	if len(runes) > maxRunes {
+		raw = string(runes[:maxRunes-3]) + "..."
+	}
+	return "Log: " + raw
 }
 
 func applyJSONCheck(resp map[string]any, body string, job model.Job) {
