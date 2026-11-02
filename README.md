@@ -49,7 +49,7 @@ Names and meaning match `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HA
 `PROTOCOL_VERSION` defaults to `2.0`; values `1.0` and empty string are not accepted. The server returns an error if the protocol version is below 2.0.
 
 - **get/** — only required job fields; Docker PEM via `docker_tls_sync` + `docker_update_time` (worker caches PEM and supplies it if the server did not send `tls_*`).
-- **state/** — no `response_body`; Docker — only `container_states`; HTTPS — `cert_expire` for SSL alerts.
+- **state/** — no `response_body`; Docker — `container_states` plus compact `engine_info` from Engine `/version`; HTTPS — `cert_expire` for SSL alerts.
 - API responses without `server_time` / `server_microtime`.
 - **`CURL_DEBUG`** — HTTP logging (method, URL, response code, proxy); **`proxy_type`** as in PHP cURL (HTTP/SOCKS5).
 - Restart from server: `data.restart` (button in the worker admin UI on the server).

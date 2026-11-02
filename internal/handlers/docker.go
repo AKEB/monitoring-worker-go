@@ -123,6 +123,14 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	defer tr.CloseIdleConnections()
 
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}
+	baseURL := scheme + "://" + host + ":" + portStr
+
+	// /version proves TLS/certs/host even when containers/json later fails.
+	if info, ok := dockerFetchEngineInfo(ctx, client, baseURL, cfg); ok {
+		respMap["engine_info"] = info
+		cfg.DockerLogf("engine_info Version=%v ApiVersion=%v Os=%v Arch=%v",
+			info["Version"], info["ApiVersion"], info["Os"], info["Arch"])
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -181,6 +189,57 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	}
 
 	return respMap
+}
+
+// dockerFetchEngineInfo calls Docker Engine GET /version and returns a compact map for State.php.
+func dockerFetchEngineInfo(ctx context.Context, client *http.Client, baseURL string, cfg *config.Config) (map[string]any, bool) {
+	versionURL := strings.TrimRight(baseURL, "/") + "/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
+	if err != nil {
+		cfg.DockerLogf("/version NewRequest error: %v", err)
+		return nil, false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		cfg.DockerLogf("/version HTTP error: %v", err)
+		return nil, false
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		cfg.DockerLogf("/version HTTP status=%d body=%s", resp.StatusCode, truncateForLog(string(b), 200))
+		return nil, false
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		cfg.DockerLogf("/version JSON decode: %v", err)
+		return nil, false
+	}
+	info := compactDockerEngineInfo(raw)
+	if info == nil {
+		return nil, false
+	}
+	return info, true
+}
+
+func compactDockerEngineInfo(raw map[string]any) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	version := dockerFieldString(raw, "Version")
+	if version == "" {
+		return nil
+	}
+	return map[string]any{
+		"Version":       version,
+		"ApiVersion":    dockerFieldString(raw, "ApiVersion"),
+		"MinAPIVersion": dockerFieldString(raw, "MinAPIVersion"),
+		"Os":            dockerFieldString(raw, "Os"),
+		"Arch":          dockerFieldString(raw, "Arch"),
+		"KernelVersion": dockerFieldString(raw, "KernelVersion"),
+	}
 }
 
 func tlsServerName(host string) string {
