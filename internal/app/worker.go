@@ -9,14 +9,18 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"monitoring-worker-go/internal/config"
 	"monitoring-worker-go/internal/handlers"
 	"monitoring-worker-go/internal/model"
+	"monitoring-worker-go/internal/selfupdate"
 )
 
 type trackedJob struct {
@@ -44,6 +48,8 @@ type Worker struct {
 	sendStateJobs       []*trackedJob
 	sendDockerStateJobs []*trackedJob
 	restartFromServer   bool
+	pendingUpdate       *selfupdate.Command
+	updateOnce          atomic.Bool
 
 	sem chan struct{}
 
@@ -89,7 +95,22 @@ func (w *Worker) Loop() {
 	for {
 		w.mu.Lock()
 		restart := w.restartFromServer
+		upd := w.pendingUpdate
+		w.pendingUpdate = nil
 		w.mu.Unlock()
+		if upd != nil && w.cfg.AutoUpdate {
+			if w.updateOnce.CompareAndSwap(false, true) {
+				w.cfg.Logf("self-update requested version=%s arch=%s", upd.Version, upd.Arch)
+				if err := selfupdate.Apply(*upd, w.cfg.UpdateFromGitHub); err != nil {
+					w.cfg.Errorf("self-update failed: %v", err)
+					w.cfg.LastUpdateError = err.Error()
+					w.updateOnce.Store(false)
+				} else {
+					w.cfg.Logf("self-update installed %s; exiting for restart", upd.Version)
+					os.Exit(0)
+				}
+			}
+		}
 		if restart {
 			break
 		}
@@ -382,6 +403,10 @@ func (w *Worker) getJobs() {
 		"worker_key_hash":  w.cfg.WorkerKeyHash,
 		"protocol_version": w.cfg.ProtocolVersion,
 		"worker_version":   w.cfg.WorkerVersion,
+		"arch":             runtime.GOARCH,
+	}
+	if errMsg := strings.TrimSpace(w.cfg.LastUpdateError); errMsg != "" {
+		payload["update_error"] = errMsg
 	}
 	if len(tlsSync) > 0 {
 		payload["docker_tls_sync"] = tlsSync
@@ -431,6 +456,10 @@ func (w *Worker) getJobs() {
 	w.syncDockersLocked(dockers)
 	w.jobSyncLast = time.Now().Unix()
 	w.mu.Unlock()
+	if w.cfg.LastUpdateError != "" {
+		// Cleared after a successful get that carried the error.
+		w.cfg.LastUpdateError = ""
+	}
 
 	w.cfg.Logf("getJobs: %d jobs, %d dockers", len(jobs), len(dockers))
 	w.cfg.Logf("Finished getJobs function")
@@ -472,6 +501,19 @@ func (w *Worker) syncConfigLocked(cfgObj map[string]any) {
 	if r, ok := cfgObj["restart"]; ok {
 		if fmt.Sprint(r) == "true" {
 			w.restartFromServer = true
+		}
+	}
+	if u, ok := cfgObj["update"]; ok {
+		if m, ok := u.(map[string]any); ok {
+			cmd := selfupdate.Command{
+				Version: strings.TrimSpace(fmt.Sprint(m["version"])),
+				URL:     strings.TrimSpace(fmt.Sprint(m["url"])),
+				Sha256:  strings.TrimSpace(fmt.Sprint(m["sha256"])),
+				Arch:    strings.TrimSpace(fmt.Sprint(m["arch"])),
+			}
+			if cmd.URL != "" && cmd.URL != "<nil>" {
+				w.pendingUpdate = &cmd
+			}
 		}
 	}
 }
@@ -575,6 +617,7 @@ func (w *Worker) sendJobsState() bool {
 		"worker_key_hash":  w.cfg.WorkerKeyHash,
 		"protocol_version": w.cfg.ProtocolVersion,
 		"worker_version":   w.cfg.WorkerVersion,
+		"arch":             runtime.GOARCH,
 	}
 	jobsOut := make([]any, 0, len(jobsCopy))
 	for _, t := range jobsCopy {
@@ -634,6 +677,7 @@ func (w *Worker) sendDockersState() bool {
 		"worker_key_hash":  w.cfg.WorkerKeyHash,
 		"protocol_version": w.cfg.ProtocolVersion,
 		"worker_version":   w.cfg.WorkerVersion,
+		"arch":             runtime.GOARCH,
 	}
 	out := make([]any, 0, len(dockCopy))
 	for _, t := range dockCopy {

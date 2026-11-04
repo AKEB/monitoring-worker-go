@@ -53,6 +53,20 @@ Names and meaning match `monitoring-worker`: `TZ`, `SERVER_HOST`, `WORKER_KEY_HA
 - API responses without `server_time` / `server_microtime`.
 - **`CURL_DEBUG`** — HTTP logging (method, URL, response code, proxy); **`proxy_type`** as in PHP cURL (HTTP/SOCKS5).
 - Restart from server: `data.restart` (button in the worker admin UI on the server).
+- Remote binary update: `data.update` `{version,url,sha256,arch}` when Admin → Workers sets a desired version (requires `AUTO_UPDATE=true`, default).
+
+### Remote updates
+
+The monitoring server can set a **desired worker version** (Admin → Workers). On `get/` the worker may receive `data.update` and, with `AUTO_UPDATE=true`, downloads the GitHub Release asset, verifies SHA-256, replaces its binary, and exits (`systemd` `Restart=always`).
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AUTO_UPDATE` | `true` | Honor `data.update` from get/ |
+| `UPDATE_FROM_GITHUB` | `true` | Allow only `github.com/AKEB/monitoring-worker-go` release URLs |
+
+Hosts need outbound HTTPS to GitHub. Rollback: set desired version to an older tag.
+
+For **Docker** deployments prefer image tags / recreate the container; set `AUTO_UPDATE=false` so the process does not try to replace a read-only image layer.
 
 ### `WORKER_VERSION` (same as PHP)
 
@@ -78,14 +92,12 @@ If the job **`host` is an IP** but the daemon certificate is issued for a **DNS 
 
 File `.github/workflows/build.yml`:
 
-- on **push** to `main`/`master` and on **pull request** — build and artifact in the workflow run (unchanged);
-- on **tag push** like `v1.2.3` — same build plus **GitHub Release** with `monitoring-worker` attached (via [softprops/action-gh-release](https://github.com/softprops/action-gh-release)).
-
-Example of publishing a version:
+- on **push** to `main`/`master` and on **pull request** — multi-arch build (`linux/amd64`, `linux/arm64`) + `.sha256` / `checksums.txt`;
+- on **tag push** like `v1.2.3` — GitHub Release with arch-specific binaries (and legacy `monitoring-worker` = amd64).
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v2.2.9
+git push origin v2.2.9
 ```
 
 A normal branch push **does not create a release** — only an Actions artifact.

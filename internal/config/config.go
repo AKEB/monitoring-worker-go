@@ -34,6 +34,10 @@ type Config struct {
 	// ImmediateErrorRetry mirrors PHP: after failure/timeout set update_time so the job is eligible again on the next loop tick (can spam DEBUG logs).
 	// Set IMMEDIATE_ERROR_RETRY=false to wait full repeat_seconds before the next run (calmer; not byte-for-byte PHP).
 	ImmediateErrorRetry bool
+	AutoUpdate          bool
+	UpdateFromGitHub    bool
+	// LastUpdateError is attached to the next get/ payload after a failed self-update.
+	LastUpdateError string
 }
 
 var (
@@ -62,6 +66,8 @@ func Get() *Config {
 			CurlDebug:           getBool("CURL_DEBUG", false),
 			DockerDebug:         getBool("DOCKER_DEBUG", false),
 			ImmediateErrorRetry: getBool("IMMEDIATE_ERROR_RETRY", true),
+			AutoUpdate:          getBool("AUTO_UPDATE", true),
+			UpdateFromGitHub:    getBool("UPDATE_FROM_GITHUB", true),
 		}
 		cfg.ServerTLS = strings.HasPrefix(strings.ToLower(cfg.ServerHost), "https://")
 		_ = os.Setenv("TZ", cfg.Timezone)
