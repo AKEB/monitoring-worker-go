@@ -1,6 +1,24 @@
 # Monitoring Project Worker
 
-![Logo](/images/icon.png)
+![Logo](https://monitoring.akeb.ru/images/apple-icon-180x180.png)
+
+- Server
+![Docker Pulls](https://img.shields.io/docker/pulls/akeb/monitoring) ![Docker Image Size](https://img.shields.io/docker/image-size/akeb/monitoring/latest) ![Docker Version](https://img.shields.io/docker/v/akeb/monitoring) ![Docker Stars](https://img.shields.io/docker/stars/akeb/monitoring) ![License](https://img.shields.io/badge/license-AGPLv3-blue)
+
+- Worker
+![Docker Pulls](https://img.shields.io/docker/pulls/akeb/monitoring-worker-go) ![Docker Image Size](https://img.shields.io/docker/image-size/akeb/monitoring-worker-go/latest) ![Docker Version](https://img.shields.io/docker/v/akeb/monitoring-worker-go) ![Docker Stars](https://img.shields.io/docker/stars/akeb/monitoring-worker-go) ![License](https://img.shields.io/badge/license-AGPLv3-blue)
+
+- Agent
+![Docker Pulls](https://img.shields.io/docker/pulls/akeb/monitoring-agent) ![Docker Image Size](https://img.shields.io/docker/image-size/akeb/monitoring-agent/latest) ![Docker Version](https://img.shields.io/docker/v/akeb/monitoring-agent) ![Docker Stars](https://img.shields.io/docker/stars/akeb/monitoring-agent) ![License](https://img.shields.io/badge/license-AGPLv3-blue)
+
+Monitoring is a powerful distributed monitoring system with a web interface, built on a Server / Worker / Agent architecture. Monitor websites, services, Docker containers and host metrics from geographically distributed points.
+
+- [Website](https://akeb.github.io/monitoring/)
+
+Docker images:
+- [akeb/monitoring:latest](https://hub.docker.com/r/akeb/monitoring)
+- [akeb/monitoring-worker-go:latest](https://hub.docker.com/r/akeb/monitoring-worker-go)
+- [akeb/monitoring-agent:latest](https://hub.docker.com/r/akeb/monitoring-agent)
 
 Go monitoring worker for API **protocol 2.0** (monitoring-server ≥ v2.1.0): single binary, configuration from environment and optionally from `.env` next to the process or the binary.
 
