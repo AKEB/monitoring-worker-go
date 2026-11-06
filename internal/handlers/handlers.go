@@ -17,4 +17,5 @@ const (
 	JobTypeExporterMemory = 6
 	JobTypeExporterCPU    = 7
 	JobTypeHTTPJSON       = 8
+	JobTypeUDP            = 18
 )

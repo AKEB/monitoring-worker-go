@@ -114,8 +114,8 @@ File `.github/workflows/build.yml`:
 - on **tag push** like `v1.2.3` — GitHub Release with arch-specific binaries (and legacy `monitoring-worker` = amd64).
 
 ```bash
-git tag v2.2.9
-git push origin v2.2.9
+git tag v2.4.0
+git push origin v2.4.0
 ```
 
 A normal branch push **does not create a release** — only an Actions artifact.
