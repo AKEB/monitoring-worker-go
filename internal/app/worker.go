@@ -323,6 +323,25 @@ func (w *Worker) bumpScheduleAfterFailureOrTimeout(j *model.Job, now int64) {
 	j.UpdateTime = now
 }
 
+// logUpdateTime is the timestamp used to bucket monitoring_logs on the server.
+// Prefer the check start so success and failure land in the same minute the
+// probe actually ran, not the schedule cursor after bumpScheduleAfterFailureOrTimeout.
+func logUpdateTime(t *trackedJob) int64 {
+	if t == nil {
+		return time.Now().Unix()
+	}
+	if t.started > 0 {
+		return t.started
+	}
+	if t.job.StartTime > 0 {
+		return t.job.StartTime
+	}
+	if t.job.UpdateTime > 0 {
+		return t.job.UpdateTime
+	}
+	return time.Now().Unix()
+}
+
 // clampJobTimeout matches handlers.capTimeout: unset/invalid → 15, otherwise 1..60.
 func clampJobTimeout(v int) int {
 	if v <= 0 {
@@ -635,7 +654,11 @@ func (w *Worker) sendJobsState() bool {
 		jobsOut = append(jobsOut, map[string]any{
 			"job_id":      t.job.JobID,
 			"monitor_id":  t.job.ID,
+			// update_time = local schedule cursor (may be now/now-repeat after errors).
 			"update_time": t.job.UpdateTime,
+			// start_time = when the check began; server buckets the log by this
+			// so failure bumps do not push the oval into the next minute.
+			"start_time":  logUpdateTime(t),
 			"response":    t.response,
 		})
 	}
@@ -703,6 +726,7 @@ func (w *Worker) sendDockersState() bool {
 			"job_id":      t.job.JobID,
 			"docker_id":   t.job.ID,
 			"update_time": t.job.UpdateTime,
+			"start_time":  logUpdateTime(t),
 			"response":    t.response,
 		})
 	}
