@@ -187,10 +187,7 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 			j.RepeatSeconds = 60
 		}
 		j.RepeatSeconds = min(max(60, j.RepeatSeconds), 600)
-		if j.Timeout <= 0 {
-			j.Timeout = 15
-		}
-		j.Timeout = min(max(15, j.Timeout), 60)
+		j.Timeout = clampJobTimeout(j.Timeout)
 
 		if t.running {
 			if now > t.started+int64(j.Timeout) {
@@ -324,6 +321,14 @@ func (w *Worker) bumpScheduleAfterFailureOrTimeout(j *model.Job, now int64) {
 		return
 	}
 	j.UpdateTime = now
+}
+
+// clampJobTimeout matches handlers.capTimeout: unset/invalid → 15, otherwise 1..60.
+func clampJobTimeout(v int) int {
+	if v <= 0 {
+		return 15
+	}
+	return min(max(1, v), 60)
 }
 
 func (w *Worker) enqueueSend(t *trackedJob, docker bool) {

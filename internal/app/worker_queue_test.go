@@ -6,6 +6,25 @@ import (
 	"monitoring-worker-go/internal/model"
 )
 
+func TestClampJobTimeout(t *testing.T) {
+	cases := []struct {
+		in, want int
+	}{
+		{0, 15},
+		{-1, 15},
+		{1, 1},
+		{5, 5},
+		{15, 15},
+		{60, 60},
+		{61, 60},
+	}
+	for _, tc := range cases {
+		if got := clampJobTimeout(tc.in); got != tc.want {
+			t.Fatalf("clampJobTimeout(%d)=%d want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestSortedMapKeys_longestWaitingFirst(t *testing.T) {
 	m := map[int]*trackedJob{
 		3: {job: model.Job{JobID: 3, UpdateTime: 100, RepeatSeconds: 60}},
