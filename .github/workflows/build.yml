@@ -75,7 +75,17 @@ jobs:
 
   docker:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            suffix: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     steps:
@@ -85,14 +95,8 @@ jobs:
         id: dockertags
         run: |
           safe="${GITHUB_REF_NAME//\//-}"
-          {
-            echo "list<<EOF"
-            echo "akeb/monitoring-worker-go:${safe}"
-            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              echo "akeb/monitoring-worker-go:latest"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          echo "safe=${safe}" >> "$GITHUB_OUTPUT"
+          echo "tag=akeb/monitoring-worker-go:${safe}-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -107,9 +111,35 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           build-args: |
             VERSION=${{ github.ref_name }}
-          tags: ${{ steps.dockertags.outputs.list }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.dockertags.outputs.tag }}
+          cache-from: type=gha,scope=monitoring-worker-go-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=monitoring-worker-go-${{ matrix.suffix }}
+
+  merge:
+    if: github.event_name != 'pull_request'
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish multi-arch manifest
+        run: |
+          safe="${GITHUB_REF_NAME//\//-}"
+          tags=(-t "akeb/monitoring-worker-go:${safe}")
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tags+=(-t "akeb/monitoring-worker-go:latest")
+          fi
+          docker buildx imagetools create \
+            "${tags[@]}" \
+            "akeb/monitoring-worker-go:${safe}-amd64" \
+            "akeb/monitoring-worker-go:${safe}-arm64"
