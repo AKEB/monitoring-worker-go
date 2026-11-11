@@ -63,8 +63,8 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	req, err := http.NewRequestWithContext(ctx, method, job.URL, nil)
 	if err != nil {
 		respMap["status"] = 0
-		respMap["response_error"] = err.Error()
-		respMap["response_error_num"] = 1
+		respMap["response_error"] = truncateResponseError(err.Error())
+		respMap["response_error_num"] = errNumBadRequest
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		return respMap
 	}
@@ -81,9 +81,11 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 
 	resp, err := client.Do(req)
 	if err != nil {
+		num, msg := classifyProbeError(err)
 		respMap["status"] = 0
-		respMap["response_error"] = err.Error()
-		respMap["response_error_num"] = 2
+		respMap["status_code"] = 0
+		respMap["response_error"] = msg
+		respMap["response_error_num"] = num
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		cfg.LogHTTPFailure("monitor", method, job.URL, 0, err, nil)
 		return respMap
@@ -118,6 +120,10 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 500 {
 		respMap["status"] = 0
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		respMap["response_error_num"] = resp.StatusCode
+		respMap["response_error"] = formatHTTPStatusError(resp.StatusCode, errBody)
 	}
 
 	if job.Type == JobTypeHTTPJSON {

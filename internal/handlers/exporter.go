@@ -3,7 +3,6 @@ package handlers
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -44,10 +43,11 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 	client := &http.Client{Transport: tr, Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		num, msg := classifyProbeError(err)
 		respMap["status"] = 0
-		respMap["status_code"] = 500
-		respMap["response_error_num"] = 500
-		respMap["response_error"] = err.Error()
+		respMap["status_code"] = 0
+		respMap["response_error_num"] = num
+		respMap["response_error"] = msg
 		respMap["result"] = "0"
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		cfg.LogHTTPFailure("exporter", http.MethodGet, url, 0, err, nil)
@@ -59,7 +59,8 @@ func RunExporter(ctx context.Context, job model.Job) map[string]any {
 		cfg.LogHTTPFailure("exporter", http.MethodGet, url, resp.StatusCode, nil, errBody)
 		respMap["status"] = 0
 		respMap["status_code"] = resp.StatusCode
-		respMap["response_error"] = fmt.Sprintf("unexpected HTTP status %d", resp.StatusCode)
+		respMap["response_error_num"] = resp.StatusCode
+		respMap["response_error"] = formatHTTPStatusError(resp.StatusCode, errBody)
 		respMap["result"] = "0"
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		return respMap

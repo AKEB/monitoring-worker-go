@@ -200,7 +200,8 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 				t.running = false
 				t.cancel = nil
 				if t.response == nil {
-					t.response = handlers.TimeoutResponse()
+					elapsed := time.Duration(now-t.started) * time.Second
+					t.response = handlers.TimeoutResponse(elapsed)
 				}
 				w.bumpScheduleAfterFailureOrTimeout(j, now)
 				t.state = "timeout"
@@ -290,10 +291,11 @@ func (w *Worker) runJob(id int, docker bool, t *trackedJob, ctx context.Context,
 	defer func() { <-w.sem }()
 	defer close(t.done)
 
+	started := time.Now()
 	resp := run(ctx, jobCopy)
 	if ctx.Err() == context.DeadlineExceeded {
 		if resp == nil {
-			t.response = handlers.TimeoutResponse()
+			t.response = handlers.TimeoutResponse(time.Since(started))
 		} else {
 			t.response = resp
 		}

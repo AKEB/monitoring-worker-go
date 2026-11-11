@@ -146,8 +146,11 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	cfg.DockerLogf("HTTP Do start (client.Timeout=%s)", client.Timeout)
 	resp, err := client.Do(req)
 	if err != nil {
+		num, msg := classifyProbeError(err)
 		respMap["status"] = 0
-		respMap["response_error"] = err.Error()
+		respMap["status_code"] = 0
+		respMap["response_error_num"] = num
+		respMap["response_error"] = msg
 		respMap["total_time_us"] = time.Since(start).Microseconds()
 		cfg.LogHTTPFailure("docker", http.MethodGet, reqURL, 0, err, nil)
 		cfg.DockerLogf("HTTP Do error: %v", err)
@@ -165,9 +168,8 @@ func RunDocker(ctx context.Context, job model.Job) map[string]any {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		cfg.LogHTTPFailure("docker", http.MethodGet, reqURL, resp.StatusCode, nil, b)
 		respMap["status"] = 0
-		if respMap["response_error"] == "" {
-			respMap["response_error"] = fmt.Sprintf("unexpected HTTP status %d", resp.StatusCode)
-		}
+		respMap["response_error_num"] = resp.StatusCode
+		respMap["response_error"] = formatHTTPStatusError(resp.StatusCode, b)
 	} else {
 		states, ok := dockerContainersForState(bodyStr, totalUS)
 		if !ok {

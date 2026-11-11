@@ -26,12 +26,18 @@ func configureTransportTimeouts(tr *http.Transport, timeoutSec int) {
 	}
 }
 
-// TimeoutResponse is sent to the server when a job context deadline is exceeded.
-func TimeoutResponse() map[string]any {
-	return map[string]any{
+// TimeoutResponse is sent to the server when a job context deadline is exceeded
+// and the handler did not produce its own response.
+// elapsed is optional timing for total_time_us (0 omits a meaningful value).
+func TimeoutResponse(elapsed time.Duration) map[string]any {
+	resp := map[string]any{
 		"status":             0,
 		"status_code":        0,
-		"response_error_num": 408,
-		"response_error":     "context deadline exceeded",
+		"response_error_num": errNumTimeout,
+		"response_error":     "timeout: job deadline exceeded",
 	}
+	if elapsed > 0 {
+		resp["total_time_us"] = elapsed.Microseconds()
+	}
+	return resp
 }
