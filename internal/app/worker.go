@@ -32,7 +32,7 @@ type trackedJob struct {
 	cancel        context.CancelFunc
 	done          chan struct{}
 	started       int64
-	sendQueuedAt  int64 // unix: first enqueue to send queue (FIFO order)
+	sendQueuedAt  int64 // unix: when current payload entered/refreshed on send queue
 }
 
 type Worker struct {
@@ -364,9 +364,13 @@ func (w *Worker) enqueueSend(t *trackedJob, docker bool) {
 	}
 }
 
-// drainSendQueues sends at most one batch per queue per due window.
-// Do not dump the whole backlog in one tick — after monitoring downtime that
-// self-DDOSes the server. Stale queued results are dropped instead of retried forever.
+// maxSendBatchesPerDrain caps how many /state/ batches one loop tick may send.
+// Enough to catch up after downtime without dumping the entire backlog at once.
+const maxSendBatchesPerDrain = 4
+
+// drainSendQueues sends pending results FIFO, limited to maxSendBatchesPerDrain
+// batches per due window. Stale queued results (unchanged payload waiting too long
+// while the server was unreachable) are dropped instead of retried forever.
 func (w *Worker) drainSendQueues(now int64) {
 	w.mu.Lock()
 	if dropped := w.pruneStaleSendQueuesLocked(now); dropped > 0 {
@@ -376,11 +380,21 @@ func (w *Worker) drainSendQueues(now int64) {
 	dockDue := w.sendDockerStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendDockerStateJobs) > 0
 	w.mu.Unlock()
 
-	if jobsDue {
-		w.sendJobsState()
+	for i := 0; jobsDue && i < maxSendBatchesPerDrain; i++ {
+		if !w.sendJobsState() {
+			break
+		}
+		w.mu.Lock()
+		jobsDue = len(w.sendStateJobs) > 0
+		w.mu.Unlock()
 	}
-	if dockDue {
-		w.sendDockersState()
+	for i := 0; dockDue && i < maxSendBatchesPerDrain; i++ {
+		if !w.sendDockersState() {
+			break
+		}
+		w.mu.Lock()
+		dockDue = len(w.sendDockerStateJobs) > 0
+		w.mu.Unlock()
 	}
 }
 
@@ -790,11 +804,13 @@ func (w *Worker) sendDockersState() bool {
 }
 
 // clearTrackedResponses drops large per-job payloads (notably Docker Engine JSON)
-// after they have been POSTed to the server so RSS does not grow with every poll.
+// after they have been POSTed (or abandoned as stale) so RSS does not grow, and
+// clears sendQueuedAt so the next probe result starts a fresh send-age window.
 func clearTrackedResponses(jobs []*trackedJob) {
 	for _, t := range jobs {
 		if t != nil {
 			t.response = nil
+			t.sendQueuedAt = 0
 		}
 	}
 }

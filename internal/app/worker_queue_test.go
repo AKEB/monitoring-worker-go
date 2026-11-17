@@ -53,8 +53,9 @@ func TestUpsertSendQueue_keepsFIFOPosition(t *testing.T) {
 	if len(q) != 2 {
 		t.Fatalf("len=%d", len(q))
 	}
-	if q[0].job.JobID != 1 || q[0].sendQueuedAt != 10 {
-		t.Fatalf("head job_id=1 sendQueuedAt=%d", q[0].sendQueuedAt)
+	// Position stays FIFO; send age refreshes with the new probe result.
+	if q[0].job.JobID != 1 || q[0].sendQueuedAt != 99 {
+		t.Fatalf("head job_id=1 sendQueuedAt=%d want 99", q[0].sendQueuedAt)
 	}
 	if q[1].job.JobID != 2 {
 		t.Fatalf("tail job_id=%d", q[1].job.JobID)
@@ -64,6 +65,21 @@ func TestUpsertSendQueue_keepsFIFOPosition(t *testing.T) {
 	q = upsertSendQueueByJobID(q, c, 30)
 	if len(q) != 3 || q[2].job.JobID != 3 || q[2].sendQueuedAt != 30 {
 		t.Fatalf("append: %+v", q)
+	}
+}
+
+// Regression for v2.4.4: after a stale drop, the same trackedJob pointer still
+// carried an old sendQueuedAt; re-enqueue then got pruned again immediately.
+func TestUpsertSendQueue_refreshesPoisonedSendQueuedAt(t *testing.T) {
+	now := int64(1000)
+	poisoned := &trackedJob{job: model.Job{JobID: 7}, sendQueuedAt: 100} // age would be 900s
+	q := upsertSendQueueByJobID(nil, poisoned, now)
+	if len(q) != 1 || q[0].sendQueuedAt != now {
+		t.Fatalf("re-enqueue sendQueuedAt=%d want %d", q[0].sendQueuedAt, now)
+	}
+	fresh, dropped := dropStaleSendQueue(q, now, 180)
+	if len(dropped) != 0 || len(fresh) != 1 {
+		t.Fatalf("fresh=%v dropped=%v", jobIDs(fresh), jobIDs(dropped))
 	}
 }
 

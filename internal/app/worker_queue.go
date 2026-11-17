@@ -120,20 +120,20 @@ func batchIsStale(batch []*trackedJob, now, maxAge int64) bool {
 }
 
 // upsertSendQueueByJobID keeps at most one pending send per job_id (latest result wins).
-// New entries are appended; updates keep queue position and sendQueuedAt (FIFO fairness).
+// New entries are appended; updates keep queue position (FIFO fairness) but always
+// refresh sendQueuedAt. Reusing a stale sendQueuedAt after prune/drop permanently
+// poisoned job_ids in v2.4.4: the same trackedJob pointer kept an old timestamp,
+// so every new probe result was dropped as "stale" before /state/ could be POSTed.
 func upsertSendQueueByJobID(q []*trackedJob, t *trackedJob, now int64) []*trackedJob {
 	if t == nil || t.job.JobID == 0 {
 		return q
 	}
+	t.sendQueuedAt = now
 	for i, x := range q {
 		if x != nil && x.job.JobID == t.job.JobID {
-			t.sendQueuedAt = x.sendQueuedAt
 			q[i] = t
 			return q
 		}
-	}
-	if t.sendQueuedAt == 0 {
-		t.sendQueuedAt = now
 	}
 	return append(q, t)
 }
