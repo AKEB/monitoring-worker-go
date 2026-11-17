@@ -98,3 +98,48 @@ func TestTakeSendQueueFront(t *testing.T) {
 		t.Fatalf("batch=%v rest=%v", batch, rest)
 	}
 }
+
+func TestDropStaleSendQueue(t *testing.T) {
+	now := int64(1000)
+	q := []*trackedJob{
+		{job: model.Job{JobID: 1}, sendQueuedAt: 100},  // stale
+		{job: model.Job{JobID: 2}, sendQueuedAt: 900},  // fresh
+		{job: model.Job{JobID: 3}, sendQueuedAt: 821},  // age 179 → fresh
+		{job: model.Job{JobID: 4}, sendQueuedAt: 820},  // age 180 → stale
+	}
+	fresh, dropped := dropStaleSendQueue(q, now, 180)
+	if len(fresh) != 2 || fresh[0].job.JobID != 2 || fresh[1].job.JobID != 3 {
+		t.Fatalf("fresh=%v", jobIDs(fresh))
+	}
+	if len(dropped) != 2 || dropped[0].job.JobID != 1 || dropped[1].job.JobID != 4 {
+		t.Fatalf("dropped=%v", jobIDs(dropped))
+	}
+}
+
+func jobIDs(q []*trackedJob) []int {
+	out := make([]int, 0, len(q))
+	for _, t := range q {
+		if t != nil {
+			out = append(out, t.job.JobID)
+		}
+	}
+	return out
+}
+
+func TestBatchIsStale(t *testing.T) {
+	now := int64(1000)
+	stale := []*trackedJob{
+		{job: model.Job{JobID: 1}, sendQueuedAt: 100},
+		{job: model.Job{JobID: 2}, sendQueuedAt: 200},
+	}
+	if !batchIsStale(stale, now, 180) {
+		t.Fatal("expected stale")
+	}
+	mixed := []*trackedJob{
+		{job: model.Job{JobID: 1}, sendQueuedAt: 100},
+		{job: model.Job{JobID: 2}, sendQueuedAt: 950},
+	}
+	if batchIsStale(mixed, now, 180) {
+		t.Fatal("mixed batch must not be stale")
+	}
+}

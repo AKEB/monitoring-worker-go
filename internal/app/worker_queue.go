@@ -67,6 +67,58 @@ func takeSendQueueFront(q []*trackedJob, max int) (batch, rest []*trackedJob) {
 	return q[:max], q[max:]
 }
 
+// sendResultMaxAgeSec: results queued longer than this while the monitoring
+// server is unreachable are dropped instead of retried forever (anti-DDOS on recovery).
+const sendResultMaxAgeSec int64 = 180
+
+// dropStaleSendQueue removes entries whose sendQueuedAt is older than maxAge.
+// Dropped jobs are returned so callers can clear large response payloads.
+func dropStaleSendQueue(q []*trackedJob, now, maxAge int64) (fresh, dropped []*trackedJob) {
+	if len(q) == 0 {
+		return nil, nil
+	}
+	if maxAge < 1 {
+		return q, nil
+	}
+	fresh = make([]*trackedJob, 0, len(q))
+	for _, t := range q {
+		if t == nil || t.job.JobID == 0 {
+			continue
+		}
+		queuedAt := t.sendQueuedAt
+		if queuedAt < 1 {
+			queuedAt = now
+			t.sendQueuedAt = now
+		}
+		if now-queuedAt >= maxAge {
+			dropped = append(dropped, t)
+			continue
+		}
+		fresh = append(fresh, t)
+	}
+	return fresh, dropped
+}
+
+// batchIsStale reports whether every item in the batch has aged past maxAge.
+func batchIsStale(batch []*trackedJob, now, maxAge int64) bool {
+	if len(batch) == 0 || maxAge < 1 {
+		return false
+	}
+	for _, t := range batch {
+		if t == nil {
+			continue
+		}
+		queuedAt := t.sendQueuedAt
+		if queuedAt < 1 {
+			return false
+		}
+		if now-queuedAt < maxAge {
+			return false
+		}
+	}
+	return true
+}
+
 // upsertSendQueueByJobID keeps at most one pending send per job_id (latest result wins).
 // New entries are appended; updates keep queue position and sendQueuedAt (FIFO fairness).
 func upsertSendQueueByJobID(q []*trackedJob, t *trackedJob, now int64) []*trackedJob {

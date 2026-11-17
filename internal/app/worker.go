@@ -364,31 +364,36 @@ func (w *Worker) enqueueSend(t *trackedJob, docker bool) {
 	}
 }
 
-// drainSendQueues sends pending results FIFO from the head of each queue.
-// When the queue is larger than one batch, multiple batches are sent in one loop tick
-// (still rate-limited by response_send_timeout between drain windows).
+// drainSendQueues sends at most one batch per queue per due window.
+// Do not dump the whole backlog in one tick — after monitoring downtime that
+// self-DDOSes the server. Stale queued results are dropped instead of retried forever.
 func (w *Worker) drainSendQueues(now int64) {
 	w.mu.Lock()
+	if dropped := w.pruneStaleSendQueuesLocked(now); dropped > 0 {
+		w.cfg.Logf("dropped %d stale queued results (server unreachable too long)", dropped)
+	}
 	jobsDue := w.sendStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendStateJobs) > 0
 	dockDue := w.sendDockerStateTime < now-int64(w.cfg.ResponseSendTimeout) && len(w.sendDockerStateJobs) > 0
 	w.mu.Unlock()
 
-	for jobsDue {
-		if !w.sendJobsState() {
-			break
-		}
-		w.mu.Lock()
-		jobsDue = len(w.sendStateJobs) > 0
-		w.mu.Unlock()
+	if jobsDue {
+		w.sendJobsState()
 	}
-	for dockDue {
-		if !w.sendDockersState() {
-			break
-		}
-		w.mu.Lock()
-		dockDue = len(w.sendDockerStateJobs) > 0
-		w.mu.Unlock()
+	if dockDue {
+		w.sendDockersState()
 	}
+}
+
+func (w *Worker) pruneStaleSendQueuesLocked(now int64) int {
+	var n int
+	var dropped []*trackedJob
+	w.sendStateJobs, dropped = dropStaleSendQueue(w.sendStateJobs, now, sendResultMaxAgeSec)
+	n += len(dropped)
+	clearTrackedResponses(dropped)
+	w.sendDockerStateJobs, dropped = dropStaleSendQueue(w.sendDockerStateJobs, now, sendResultMaxAgeSec)
+	n += len(dropped)
+	clearTrackedResponses(dropped)
+	return n
 }
 
 func (w *Worker) applyProxy(j *model.Job) {
@@ -677,15 +682,23 @@ func (w *Worker) sendJobsState() bool {
 	if !apiOK && code >= 200 && code < 300 {
 		w.cfg.LogMonitoringAPIError("server", http.MethodPost, stateURL, code, body)
 	}
+	now := time.Now().Unix()
 	w.mu.Lock()
 	if !apiOK {
+		if batchIsStale(jobsCopy, now, sendResultMaxAgeSec) {
+			clearTrackedResponses(jobsCopy)
+			w.sendStateTime = now
+			w.mu.Unlock()
+			w.cfg.Errorf("sendJobsState drop stale batch: http=%d err=%v api_err=%q", code, err, apiErr)
+			return false
+		}
 		w.sendStateJobs = prependSendQueueFront(w.sendStateJobs, jobsCopy)
-		w.sendStateTime = time.Now().Unix()
+		w.sendStateTime = now
 		w.mu.Unlock()
 		w.cfg.Errorf("sendJobsState retry later: http=%d err=%v api_err=%q", code, err, apiErr)
 		return false
 	}
-	w.sendStateTime = time.Now().Unix()
+	w.sendStateTime = now
 	clearTrackedResponses(jobsCopy)
 	w.mu.Unlock()
 	w.cfg.Logf("Finished sendJobsState function")
@@ -754,14 +767,22 @@ func (w *Worker) sendDockersState() bool {
 	} else {
 		w.cfg.Logf("sendDockersState http=%d api_ok=true", code)
 	}
+	now := time.Now().Unix()
 	w.mu.Lock()
 	if !apiOK {
+		if batchIsStale(dockCopy, now, sendResultMaxAgeSec) {
+			clearTrackedResponses(dockCopy)
+			w.sendDockerStateTime = now
+			w.mu.Unlock()
+			w.cfg.Errorf("sendDockersState drop stale batch: http=%d err=%v api_err=%q", code, err, apiErr)
+			return false
+		}
 		w.sendDockerStateJobs = prependSendQueueFront(w.sendDockerStateJobs, dockCopy)
-		w.sendDockerStateTime = time.Now().Unix()
+		w.sendDockerStateTime = now
 		w.mu.Unlock()
 		return false
 	}
-	w.sendDockerStateTime = time.Now().Unix()
+	w.sendDockerStateTime = now
 	clearTrackedResponses(dockCopy)
 	w.mu.Unlock()
 	w.cfg.Logf("Finished sendDockersState function")
