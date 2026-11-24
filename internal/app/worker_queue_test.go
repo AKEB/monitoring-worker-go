@@ -44,11 +44,11 @@ func TestSortedMapKeys_longestWaitingFirst(t *testing.T) {
 }
 
 func TestUpsertSendQueue_keepsFIFOPosition(t *testing.T) {
-	a := &trackedJob{job: model.Job{JobID: 1}, sendQueuedAt: 10}
-	b := &trackedJob{job: model.Job{JobID: 2}, sendQueuedAt: 20}
+	a := &trackedJob{job: model.Job{JobID: 1, ID: 10}, sendQueuedAt: 10}
+	b := &trackedJob{job: model.Job{JobID: 2, ID: 20}, sendQueuedAt: 20}
 	q := []*trackedJob{a, b}
 
-	updated := &trackedJob{job: model.Job{JobID: 1}}
+	updated := &trackedJob{job: model.Job{JobID: 1, ID: 10}}
 	q = upsertSendQueueByJobID(q, updated, 99)
 	if len(q) != 2 {
 		t.Fatalf("len=%d", len(q))
@@ -61,10 +61,38 @@ func TestUpsertSendQueue_keepsFIFOPosition(t *testing.T) {
 		t.Fatalf("tail job_id=%d", q[1].job.JobID)
 	}
 
-	c := &trackedJob{job: model.Job{JobID: 3}}
+	c := &trackedJob{job: model.Job{JobID: 3, ID: 30}}
 	q = upsertSendQueueByJobID(q, c, 30)
 	if len(q) != 3 || q[2].job.JobID != 3 || q[2].sendQueuedAt != 30 {
 		t.Fatalf("append: %+v", q)
+	}
+}
+
+func TestUpsertSendQueue_folderInheritedSharedJobID(t *testing.T) {
+	// Same folder job_id, different monitor ids must stay separate.
+	a := &trackedJob{job: model.Job{JobID: 99, ID: 415}}
+	b := &trackedJob{job: model.Job{JobID: 99, ID: 451}}
+	q := upsertSendQueueByJobID(nil, a, 1)
+	q = upsertSendQueueByJobID(q, b, 2)
+	if len(q) != 2 {
+		t.Fatalf("len=%d want 2", len(q))
+	}
+	if trackKey(q[0].job) != 415 || trackKey(q[1].job) != 451 {
+		t.Fatalf("keys=%d,%d", trackKey(q[0].job), trackKey(q[1].job))
+	}
+	updated := &trackedJob{job: model.Job{JobID: 99, ID: 415}}
+	q = upsertSendQueueByJobID(q, updated, 3)
+	if len(q) != 2 || q[0].sendQueuedAt != 3 || q[0].job.ID != 415 {
+		t.Fatalf("update collapsed queue: len=%d %+v", len(q), q)
+	}
+}
+
+func TestTrackKey(t *testing.T) {
+	if got := trackKey(model.Job{JobID: 7, ID: 415}); got != 415 {
+		t.Fatalf("prefer id: %d", got)
+	}
+	if got := trackKey(model.Job{JobID: 7}); got != 7 {
+		t.Fatalf("fallback job_id: %d", got)
 	}
 }
 

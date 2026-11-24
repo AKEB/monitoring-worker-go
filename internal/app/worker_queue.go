@@ -21,8 +21,18 @@ func jobNextDueUnix(j model.Job) int64 {
 	return j.UpdateTime + int64(rs)
 }
 
+// trackKey uniquely identifies a check target in the worker maps/queues.
+// Prefer monitor/docker id so folder-inherited jobs (shared job_id, different id)
+// do not collapse into a single tracked entry.
+func trackKey(j model.Job) int {
+	if j.ID > 0 {
+		return j.ID
+	}
+	return j.JobID
+}
+
 // sortedMapKeys returns map keys ordered by next due time (longest waiting first),
-// then job_id for stable ordering.
+// then track key for stable ordering.
 func sortedMapKeys(m map[int]*trackedJob) []int {
 	if len(m) == 0 {
 		return nil
@@ -119,18 +129,24 @@ func batchIsStale(batch []*trackedJob, now, maxAge int64) bool {
 	return true
 }
 
-// upsertSendQueueByJobID keeps at most one pending send per job_id (latest result wins).
+// upsertSendQueueByJobID keeps at most one pending send per track key (latest result wins).
 // New entries are appended; updates keep queue position (FIFO fairness) but always
 // refresh sendQueuedAt. Reusing a stale sendQueuedAt after prune/drop permanently
 // poisoned job_ids in v2.4.4: the same trackedJob pointer kept an old timestamp,
 // so every new probe result was dropped as "stale" before /state/ could be POSTed.
+// Track key is monitor/docker id when set, so folder-inherited jobs with a shared
+// job_id still queue separately.
 func upsertSendQueueByJobID(q []*trackedJob, t *trackedJob, now int64) []*trackedJob {
 	if t == nil || t.job.JobID == 0 {
 		return q
 	}
+	key := trackKey(t.job)
+	if key == 0 {
+		return q
+	}
 	t.sendQueuedAt = now
 	for i, x := range q {
-		if x != nil && x.job.JobID == t.job.JobID {
+		if x != nil && trackKey(x.job) == key {
 			q[i] = t
 			return q
 		}
@@ -139,7 +155,7 @@ func upsertSendQueueByJobID(q []*trackedJob, t *trackedJob, now int64) []*tracke
 }
 
 // prependSendQueueFront puts failed batch back at the head; batch order is preserved.
-// Entries already in q with the same job_id are dropped in favor of the batch item.
+// Entries already in q with the same track key are dropped in favor of the batch item.
 func prependSendQueueFront(q, batch []*trackedJob) []*trackedJob {
 	if len(batch) == 0 {
 		return q
@@ -150,17 +166,25 @@ func prependSendQueueFront(q, batch []*trackedJob) []*trackedJob {
 		if t == nil || t.job.JobID == 0 {
 			continue
 		}
-		if _, ok := seen[t.job.JobID]; ok {
+		key := trackKey(t.job)
+		if key == 0 {
 			continue
 		}
-		seen[t.job.JobID] = struct{}{}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		out = append(out, t)
 	}
 	for _, t := range q {
 		if t == nil || t.job.JobID == 0 {
 			continue
 		}
-		if _, ok := seen[t.job.JobID]; ok {
+		key := trackKey(t.job)
+		if key == 0 {
+			continue
+		}
+		if _, ok := seen[key]; ok {
 			continue
 		}
 		out = append(out, t)

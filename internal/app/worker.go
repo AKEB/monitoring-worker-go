@@ -588,23 +588,27 @@ func toInt(v any) (int, bool) {
 }
 
 func (w *Worker) syncJobsLocked(incoming []model.Job) {
-	byID := make(map[int]model.Job, len(incoming))
-	newIDs := make([]int, 0)
+	byKey := make(map[int]model.Job, len(incoming))
+	newKeys := make([]int, 0)
 	for _, j := range incoming {
-		byID[j.JobID] = j
-		if _, ok := w.jobs[j.JobID]; !ok {
-			newIDs = append(newIDs, j.JobID)
+		key := trackKey(j)
+		if key == 0 || j.JobID == 0 {
+			continue
+		}
+		byKey[key] = j
+		if _, ok := w.jobs[key]; !ok {
+			newKeys = append(newKeys, key)
 		}
 	}
 	for id, t := range w.jobs {
-		if _, ok := byID[id]; !ok {
+		if _, ok := byKey[id]; !ok {
 			t.status = "deleted"
 			t.job = model.Job{}
 			t.response = nil
 			continue
 		}
 		t.status = "updated"
-		nj := byID[id]
+		nj := byKey[id]
 		if t.job.UpdateTime > nj.UpdateTime {
 			nj.UpdateTime = t.job.UpdateTime
 		}
@@ -613,29 +617,33 @@ func (w *Worker) syncJobsLocked(incoming []model.Job) {
 		}
 		t.job = nj
 	}
-	for _, id := range newIDs {
-		w.jobs[id] = &trackedJob{status: "created", job: byID[id]}
+	for _, id := range newKeys {
+		w.jobs[id] = &trackedJob{status: "created", job: byKey[id]}
 	}
 }
 
 func (w *Worker) syncDockersLocked(incoming []model.Job) {
-	byID := make(map[int]model.Job, len(incoming))
-	newIDs := make([]int, 0)
+	byKey := make(map[int]model.Job, len(incoming))
+	newKeys := make([]int, 0)
 	for _, j := range incoming {
-		byID[j.JobID] = j
-		if _, ok := w.dockers[j.JobID]; !ok {
-			newIDs = append(newIDs, j.JobID)
+		key := trackKey(j)
+		if key == 0 || j.JobID == 0 {
+			continue
+		}
+		byKey[key] = j
+		if _, ok := w.dockers[key]; !ok {
+			newKeys = append(newKeys, key)
 		}
 	}
 	for id, t := range w.dockers {
-		if _, ok := byID[id]; !ok {
+		if _, ok := byKey[id]; !ok {
 			t.status = "deleted"
 			t.job = model.Job{}
 			t.response = nil
 			continue
 		}
 		t.status = "updated"
-		nj := model.MergeDockerTLS(t.job, byID[id])
+		nj := model.MergeDockerTLS(t.job, byKey[id])
 		if t.job.UpdateTime > nj.UpdateTime {
 			nj.UpdateTime = t.job.UpdateTime
 		}
@@ -644,8 +652,8 @@ func (w *Worker) syncDockersLocked(incoming []model.Job) {
 		}
 		t.job = nj
 	}
-	for _, id := range newIDs {
-		w.dockers[id] = &trackedJob{status: "created", job: byID[id]}
+	for _, id := range newKeys {
+		w.dockers[id] = &trackedJob{status: "created", job: byKey[id]}
 	}
 }
 
