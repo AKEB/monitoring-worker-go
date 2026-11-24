@@ -186,7 +186,8 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 		if j.RepeatSeconds <= 0 {
 			j.RepeatSeconds = 60
 		}
-		j.RepeatSeconds = min(max(60, j.RepeatSeconds), 600)
+		// Domain/WHOIS etc. may be hourly+; keep a 24h ceiling only.
+		j.RepeatSeconds = min(max(60, j.RepeatSeconds), 86400)
 		j.Timeout = clampJobTimeout(j.Timeout)
 
 		if t.running {

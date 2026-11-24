@@ -43,6 +43,17 @@ func TestSortedMapKeys_longestWaitingFirst(t *testing.T) {
 	}
 }
 
+func TestJobNextDueUnix_respectsHourlyDomainRepeat(t *testing.T) {
+	due := jobNextDueUnix(model.Job{UpdateTime: 1000, RepeatSeconds: 3600})
+	if due != 4600 {
+		t.Fatalf("hourly due=%d want 4600 (must not clamp to 600)", due)
+	}
+	due = jobNextDueUnix(model.Job{UpdateTime: 1000, RepeatSeconds: 100000})
+	if due != 1000+86400 {
+		t.Fatalf("ceiling due=%d want %d", due, 1000+86400)
+	}
+}
+
 func TestUpsertSendQueue_keepsFIFOPosition(t *testing.T) {
 	a := &trackedJob{job: model.Job{JobID: 1, ID: 10}, sendQueuedAt: 10}
 	b := &trackedJob{job: model.Job{JobID: 2, ID: 20}, sendQueuedAt: 20}

@@ -15,8 +15,8 @@ func jobNextDueUnix(j model.Job) int64 {
 	if rs < 60 {
 		rs = 60
 	}
-	if rs > 600 {
-		rs = 600
+	if rs > 86400 {
+		rs = 86400
 	}
 	return j.UpdateTime + int64(rs)
 }
