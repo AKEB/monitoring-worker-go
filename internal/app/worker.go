@@ -261,6 +261,10 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 			run = handlers.RunPing
 		case !docker && (j.Type == handlers.JobTypeExporterDisk || j.Type == handlers.JobTypeExporterMemory || j.Type == handlers.JobTypeExporterCPU):
 			run = handlers.RunExporter
+		case !docker && j.Type == handlers.JobTypeDomain:
+			run = handlers.RunDomain
+		case !docker && j.Type == handlers.JobTypeDNS:
+			run = handlers.RunDNS
 		case docker:
 			run = handlers.RunDocker
 		default:

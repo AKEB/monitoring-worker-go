@@ -65,7 +65,7 @@ func Get() *Config {
 			Debug:               getBool("DEBUG", false),
 			CurlDebug:           getBool("CURL_DEBUG", false),
 			DockerDebug:         getBool("DOCKER_DEBUG", false),
-			ImmediateErrorRetry: getBool("IMMEDIATE_ERROR_RETRY", true),
+			ImmediateErrorRetry: getBool("IMMEDIATE_ERROR_RETRY", false),
 			AutoUpdate:          getBool("AUTO_UPDATE", true),
 			UpdateFromGitHub:    getBool("UPDATE_FROM_GITHUB", true),
 		}

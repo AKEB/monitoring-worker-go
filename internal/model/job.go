@@ -33,6 +33,13 @@ type Job struct {
 	TLSServerName  string `json:"tls_server_name,omitempty"`
 	TLSCertificate string `json:"tls_certificate,omitempty"`
 	TLSKey         string `json:"tls_key,omitempty"`
+	DomainExpireAlertDays string `json:"domain_expire_alert_days,omitempty"`
+	DNSRecordType         string `json:"dns_record_type,omitempty"`
+	DNSResolver           string `json:"dns_resolver,omitempty"`
+	DNSTransport          string `json:"dns_transport,omitempty"`
+	DNSDoHURL             string `json:"dns_doh_url,omitempty"`
+	DNSMatchMode          string `json:"dns_match_mode,omitempty"`
+	DNSExpected           string `json:"dns_expected,omitempty"`
 }
 
 // UnmarshalJSON supports legacy API payloads where numeric fields may come as strings.
@@ -68,6 +75,13 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 	j.TLSServerName = rawString(raw["tls_server_name"])
 	j.TLSCertificate = rawString(raw["tls_certificate"])
 	j.TLSKey = rawString(raw["tls_key"])
+	j.DomainExpireAlertDays = rawString(raw["domain_expire_alert_days"])
+	j.DNSRecordType = rawString(raw["dns_record_type"])
+	j.DNSResolver = rawString(raw["dns_resolver"])
+	j.DNSTransport = rawString(raw["dns_transport"])
+	j.DNSDoHURL = rawString(raw["dns_doh_url"])
+	j.DNSMatchMode = rawString(raw["dns_match_mode"])
+	j.DNSExpected = rawString(raw["dns_expected"])
 
 	return nil
 }

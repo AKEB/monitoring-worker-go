@@ -10,6 +10,10 @@ import (
 
 // responseIndicatesFailure approximates PHP non-zero child exit: treat payload as failed
 // when status/json_valid/status_code match what the PHP scripts send on failure.
+//
+// HTTPS / HTTP JSON: the server decides success via monitor.response_code (may allow 401/405).
+// Do not treat 4xx as a local failure here — that wrongly triggers IMMEDIATE_ERROR_RETRY and
+// floods logs for monitors that intentionally expect non-2xx codes.
 func responseIndicatesFailure(resp map[string]any, jobType int) bool {
 	if resp == nil {
 		return true
@@ -21,6 +25,9 @@ func responseIndicatesFailure(resp map[string]any, jobType int) bool {
 		if v, ok := asInt64(resp["json_valid"]); ok && v == 0 {
 			return true
 		}
+	}
+	if jobType == handlers.JobTypeHTTPS || jobType == handlers.JobTypeHTTPJSON {
+		return false
 	}
 	if v, ok := asInt64(resp["status_code"]); ok && v >= 400 {
 		return true

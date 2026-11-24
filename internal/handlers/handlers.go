@@ -18,4 +18,6 @@ const (
 	JobTypeExporterCPU    = 7
 	JobTypeHTTPJSON       = 8
 	JobTypeUDP            = 18
+	JobTypeDomain         = 26
+	JobTypeDNS            = 27
 )

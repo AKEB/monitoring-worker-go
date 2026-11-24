@@ -54,6 +54,8 @@ After a `restart` command from the server, the process exits the loop and prints
 
 On `finished with error`, the next run time is set as `update_time = now - repeat_seconds`, so the job becomes available again almost immediately. With a small `LOOP_TIMEOUT` and `DEBUG=true`, logs will show many `Start`/`Finish` lines — this is expected; disable `DEBUG` or increase `LOOP_TIMEOUT` if the noise is a problem.
 
+HTTPS/HTTP JSON **4xx are not local failures**: the server applies `monitor.response_code` (e.g. expected `401`/`405`). Only transport errors and 5xx (`status=0`) trigger immediate retry. Set `IMMEDIATE_ERROR_RETRY=false` to also wait `repeat_seconds` after those hard failures.
+
 The outbound queue to the server is **deduplicated by `job_id`**: one current result per job (no hundreds of repeats in a single POST). Sends are **FIFO from the head of the queue** (oldest waiters first); with a large queue, batches are sent per loop tick. On POST failure, the failed batch is returned **to the front**, not the tail. Checks are started in order of **most overdue** (`update_time + repeat_seconds`), not random map iteration.
 
 To **avoid re-running a check on every loop tick** after an error/timeout (as PHP does with `update_time = now - repeat_seconds`), set `IMMEDIATE_ERROR_RETRY=false`: then `update_time = now` and the next run will not be sooner than `repeat_seconds`.
