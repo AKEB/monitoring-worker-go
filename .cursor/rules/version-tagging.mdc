@@ -1,0 +1,22 @@
+---
+description: SemVer tagging rules (vMAJOR.MINOR.PATCH) for all monitoring project repos
+alwaysApply: true
+---
+
+# Version Tagging (SemVer)
+
+Format: `v1.2.3` (`vMAJOR.MINOR.PATCH`)
+
+Applies to **all** repositories in the monitoring project (`monitoring`, `monitoring-worker-go`, `monitoring-website`, `monitoring-agent`, etc.).
+
+| Change type | Bump |
+| --- | --- |
+| Bugfix or very small tweak only | **PATCH** (3rd digit): `v1.2.3` → `v1.2.4` |
+| New functionality / feature | **MINOR** (2nd digit): `v1.2.3` → `v1.3.0` |
+| Very large changes or breaking / incompatible with previous version | **MAJOR** (1st digit): `v1.2.3` → `v2.0.0` |
+
+## When tagging or bumping versions
+
+- Choose the bump from the **nature of the change**, not from commit count.
+- After a MINOR or MAJOR bump, reset lower digits to `0`.
+- Do not invent a different scheme; keep the `v` prefix.
