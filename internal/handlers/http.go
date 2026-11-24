@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"math"
@@ -10,11 +11,20 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"monitoring-worker-go/internal/config"
 	"monitoring-worker-go/internal/model"
 )
+
+type oauthTokenCacheEntry struct {
+	token     string
+	tokenType string
+	expiresAt time.Time
+}
+
+var oauthTokenCache sync.Map // key: tokenURL+"|"+clientID -> oauthTokenCacheEntry
 
 func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	method := job.Method
@@ -26,8 +36,17 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 
 	verify := truthy(job.SSLVerify, true)
 	verifyHost := truthy(job.SSLVerifyHost, true)
+	tlsCfg := &tls.Config{InsecureSkipVerify: !(verify && verifyHost), MinVersion: tls.VersionTLS12}
+	if err := applyHTTPClientTLS(tlsCfg, job); err != nil {
+		return map[string]any{
+			"status":             0,
+			"status_code":        0,
+			"response_error":     truncateResponseError(err.Error()),
+			"response_error_num": errNumBadRequest,
+		}
+	}
 	tr := &http.Transport{
-		TLSClientConfig:   &tls.Config{InsecureSkipVerify: !(verify && verifyHost), MinVersion: tls.VersionTLS12},
+		TLSClientConfig:   tlsCfg,
 		ForceAttemptHTTP2: true,
 		MaxIdleConns:      10,
 	}
@@ -60,7 +79,18 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	start := time.Now()
 	respMap := map[string]any{"status": 1, "status_code": 0}
 
-	req, err := http.NewRequestWithContext(ctx, method, job.URL, nil)
+	reqURL := job.URL
+	if job.CacheBust {
+		reqURL = appendCacheBust(reqURL)
+	}
+
+	var bodyReader io.Reader
+	bodyStr := strings.TrimRight(job.RequestBody, "\r\n")
+	if bodyStr != "" {
+		bodyReader = strings.NewReader(bodyStr)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 	if err != nil {
 		respMap["status"] = 0
 		respMap["response_error"] = truncateResponseError(err.Error())
@@ -70,13 +100,21 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
 	if cfg.CurlDebug {
-		cfg.CurlLogf("%s %s proxy_type=%s", method, job.URL, proxyType)
+		cfg.CurlLogf("%s %s proxy_type=%s", method, reqURL, proxyType)
 	}
 	for _, h := range parseHeaders(job.RequestHeaders) {
 		parts := strings.SplitN(h, ":", 2)
 		if len(parts) == 2 {
 			req.Header.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 		}
+	}
+	applyBodyContentType(req, job, bodyStr != "")
+	if err := applyHTTPAuth(ctx, client, req, job); err != nil {
+		respMap["status"] = 0
+		respMap["response_error"] = truncateResponseError(err.Error())
+		respMap["response_error_num"] = errNumBadRequest
+		respMap["total_time_us"] = time.Since(start).Microseconds()
+		return respMap
 	}
 
 	resp, err := client.Do(req)
@@ -87,20 +125,21 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 		respMap["response_error"] = msg
 		respMap["response_error_num"] = num
 		respMap["total_time_us"] = time.Since(start).Microseconds()
-		cfg.LogHTTPFailure("monitor", method, job.URL, 0, err, nil)
+		cfg.LogHTTPFailure("monitor", method, reqURL, 0, err, nil)
 		return respMap
 	}
 	defer resp.Body.Close()
 	if cfg.CurlDebug {
-		cfg.CurlLogf("response %s %d %s", job.URL, resp.StatusCode, resp.Proto)
+		cfg.CurlLogf("response %s %d %s", reqURL, resp.StatusCode, resp.Proto)
 	}
 
-	var bodyStr string
+	needBody := job.Type == JobTypeHTTPJSON || job.Type == JobTypeHTTPKeyword || strings.TrimSpace(job.Keyword) != ""
+	var respBodyStr string
 	var errBody []byte
-	if job.Type == JobTypeHTTPJSON {
+	if needBody {
 		readLimit := int64(2 << 20)
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
-		bodyStr = string(body)
+		respBodyStr = string(body)
 		errBody = body
 	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ = io.ReadAll(io.LimitReader(resp.Body, 800))
@@ -117,7 +156,7 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 	// 3xx/4xx stay status=1: server applies monitor.response_code. Only log hard failures.
 	if resp.StatusCode < 200 || resp.StatusCode >= 500 {
-		cfg.LogHTTPFailure("monitor", method, job.URL, resp.StatusCode, nil, errBody)
+		cfg.LogHTTPFailure("monitor", method, reqURL, resp.StatusCode, nil, errBody)
 		respMap["status"] = 0
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
@@ -126,13 +165,218 @@ func RunHTTP(ctx context.Context, job model.Job) map[string]any {
 	}
 
 	if job.Type == JobTypeHTTPJSON {
-		applyJSONCheck(respMap, bodyStr, job)
+		applyJSONCheck(respMap, respBodyStr, job)
+	}
+	if job.Type == JobTypeHTTPKeyword || (job.Type == JobTypeHTTPS && strings.TrimSpace(job.Keyword) != "") {
+		applyKeywordCheck(respMap, respBodyStr, job)
 	}
 	// Optional response header Log: custom error text for alerts (same contract as External).
 	if logMsg := formatResponseLogHeader(resp.Header); logMsg != "" {
 		respMap["response_error"] = logMsg
 	}
 	return respMap
+}
+
+func applyBodyContentType(req *http.Request, job model.Job, hasBody bool) {
+	if !hasBody || req.Header.Get("Content-Type") != "" {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(job.HTTPBodyEncoding)) {
+	case "", "json":
+		req.Header.Set("Content-Type", "application/json")
+	case "form":
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	case "xml":
+		req.Header.Set("Content-Type", "application/xml")
+	case "raw":
+		// no auto Content-Type
+	default:
+		req.Header.Set("Content-Type", "application/json")
+	}
+}
+
+func applyHTTPAuth(ctx context.Context, client *http.Client, req *http.Request, job model.Job) error {
+	method := strings.ToLower(strings.TrimSpace(job.AuthMethod))
+	switch method {
+	case "", "none":
+		return nil
+	case "basic":
+		req.SetBasicAuth(job.BasicAuthUser, job.BasicAuthPass)
+		return nil
+	case "bearer":
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(job.BearerToken))
+		return nil
+	case "oauth2_cc":
+		tok, tokType, err := fetchOAuth2CCToken(ctx, client, job)
+		if err != nil {
+			return err
+		}
+		if tokType == "" {
+			tokType = "Bearer"
+		}
+		req.Header.Set("Authorization", tokType+" "+tok)
+		return nil
+	case "mtls":
+		// certificates applied on transport; nothing on request
+		return nil
+	default:
+		return nil
+	}
+}
+
+func fetchOAuth2CCToken(ctx context.Context, client *http.Client, job model.Job) (string, string, error) {
+	cacheKey := job.OAuthTokenURL + "|" + job.OAuthClientID
+	if v, ok := oauthTokenCache.Load(cacheKey); ok {
+		ent := v.(oauthTokenCacheEntry)
+		if time.Now().Before(ent.expiresAt.Add(-30 * time.Second)) {
+			return ent.token, ent.tokenType, nil
+		}
+	}
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	if strings.TrimSpace(job.OAuthScopes) != "" {
+		form.Set("scope", strings.TrimSpace(job.OAuthScopes))
+	}
+	if strings.TrimSpace(job.OAuthAudience) != "" {
+		form.Set("audience", strings.TrimSpace(job.OAuthAudience))
+	}
+	authMethod := strings.ToLower(strings.TrimSpace(job.OAuthAuthMethod))
+	if authMethod == "" {
+		authMethod = "client_secret_basic"
+	}
+	if authMethod == "client_secret_post" {
+		form.Set("client_id", job.OAuthClientID)
+		form.Set("client_secret", job.OAuthClientSecret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, job.OAuthTokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if authMethod != "client_secret_post" {
+		req.SetBasicAuth(job.OAuthClientID, job.OAuthClientSecret)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", &httpAuthError{msg: "oauth token HTTP " + strconv.Itoa(resp.StatusCode)}
+	}
+	var parsed struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", "", err
+	}
+	if parsed.AccessToken == "" {
+		return "", "", &httpAuthError{msg: "oauth token missing access_token"}
+	}
+	exp := time.Now().Add(time.Hour)
+	if parsed.ExpiresIn > 0 {
+		exp = time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second)
+	}
+	oauthTokenCache.Store(cacheKey, oauthTokenCacheEntry{
+		token:     parsed.AccessToken,
+		tokenType: parsed.TokenType,
+		expiresAt: exp,
+	})
+	return parsed.AccessToken, parsed.TokenType, nil
+}
+
+type httpAuthError struct{ msg string }
+
+func (e *httpAuthError) Error() string { return e.msg }
+
+func applyHTTPClientTLS(tlsCfg *tls.Config, job model.Job) error {
+	method := strings.ToLower(strings.TrimSpace(job.AuthMethod))
+	needClient := method == "mtls" || strings.TrimSpace(job.HTTPTLSCert) != "" || strings.TrimSpace(job.HTTPTLSKey) != ""
+	if strings.TrimSpace(job.HTTPTLSCA) != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(job.HTTPTLSCA)) {
+			return &httpAuthError{msg: "invalid http_tls_ca PEM"}
+		}
+		tlsCfg.RootCAs = pool
+		// custom CA implies we want verification against that pool
+		if truthy(job.SSLVerify, true) {
+			tlsCfg.InsecureSkipVerify = false
+		}
+	}
+	if !needClient {
+		return nil
+	}
+	certPEM := strings.TrimSpace(job.HTTPTLSCert)
+	keyPEM := strings.TrimSpace(job.HTTPTLSKey)
+	if certPEM == "" || keyPEM == "" {
+		if method == "mtls" {
+			return &httpAuthError{msg: "mtls requires http_tls_cert and http_tls_key"}
+		}
+		return nil
+	}
+	cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	if err != nil {
+		return err
+	}
+	tlsCfg.Certificates = []tls.Certificate{cert}
+	return nil
+}
+
+func appendCacheBust(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		sep := "?"
+		if strings.Contains(rawURL, "?") {
+			sep = "&"
+		}
+		return rawURL + sep + "_=" + strconv.FormatInt(time.Now().UnixMilli(), 10)
+	}
+	q := u.Query()
+	q.Set("_", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func applyKeywordCheck(resp map[string]any, body string, job model.Job) {
+	kw := job.Keyword
+	resp["keyword_valid"] = 0
+	if strings.TrimSpace(kw) == "" {
+		resp["response_error"] = "Keyword is empty"
+		return
+	}
+	found := strings.Contains(body, kw)
+	ok := found
+	if job.KeywordInvert {
+		ok = !found
+	}
+	if ok {
+		resp["keyword_valid"] = 1
+		if v, _ := asRespInt(resp["status"]); v == 1 {
+			resp["response_error"] = ""
+		}
+		return
+	}
+	if job.KeywordInvert {
+		resp["response_error"] = "Keyword found but invert is enabled"
+	} else {
+		resp["response_error"] = "Keyword not found"
+	}
+}
+
+func asRespInt(v any) (int64, bool) {
+	switch t := v.(type) {
+	case int:
+		return int64(t), true
+	case int64:
+		return t, true
+	case float64:
+		return int64(t), true
+	default:
+		return 0, false
+	}
 }
 
 func parseProxyURL(host string) (*url.URL, error) {

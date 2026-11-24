@@ -7,32 +7,50 @@ import (
 )
 
 type Job struct {
-	JobID          int    `json:"job_id"`
-	ID             int    `json:"id"`
-	Type           int    `json:"type"`
-	URL            string `json:"url"`
-	Method         string `json:"method"`
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	Timeout        int    `json:"timeout"`
-	RepeatSeconds  int    `json:"repeat_seconds"`
-	UpdateTime        int64 `json:"update_time"`
-	DockerUpdateTime  int64 `json:"docker_update_time,omitempty"`
-	StartTime         int64 `json:"start_time,omitempty"`
-	RequestHeaders string `json:"request_headers,omitempty"`
-	ProxyHost      string `json:"proxy_host,omitempty"`
-	ProxyType      string `json:"proxy_type,omitempty"`
-	SSLVerify      any    `json:"ssl_verify,omitempty"`
-	SSLVerifyHost  any    `json:"ssl_verify_host,omitempty"`
-	MaxRedirects   int    `json:"max_redirects,omitempty"`
-	JsonPath       string `json:"json_path,omitempty"`
-	JsonExpected   string `json:"json_expected_value,omitempty"`
-	JsonType       string `json:"json_expected_type,omitempty"`
-	TLS            bool   `json:"tls,omitempty"`
-	TLSCAFile      string `json:"tls_ca_file,omitempty"`
-	TLSServerName  string `json:"tls_server_name,omitempty"`
-	TLSCertificate string `json:"tls_certificate,omitempty"`
-	TLSKey         string `json:"tls_key,omitempty"`
+	JobID                 int    `json:"job_id"`
+	ID                    int    `json:"id"`
+	Type                  int    `json:"type"`
+	URL                   string `json:"url"`
+	Method                string `json:"method"`
+	Host                  string `json:"host"`
+	Port                  int    `json:"port"`
+	Timeout               int    `json:"timeout"`
+	RepeatSeconds         int    `json:"repeat_seconds"`
+	UpdateTime            int64  `json:"update_time"`
+	DockerUpdateTime      int64  `json:"docker_update_time,omitempty"`
+	StartTime             int64  `json:"start_time,omitempty"`
+	RequestHeaders        string `json:"request_headers,omitempty"`
+	RequestBody           string `json:"request_body,omitempty"`
+	HTTPBodyEncoding      string `json:"http_body_encoding,omitempty"`
+	AuthMethod            string `json:"auth_method,omitempty"`
+	BasicAuthUser         string `json:"basic_auth_user,omitempty"`
+	BasicAuthPass         string `json:"basic_auth_pass,omitempty"`
+	BearerToken           string `json:"bearer_token,omitempty"`
+	OAuthClientID         string `json:"oauth_client_id,omitempty"`
+	OAuthClientSecret     string `json:"oauth_client_secret,omitempty"`
+	OAuthTokenURL         string `json:"oauth_token_url,omitempty"`
+	OAuthScopes           string `json:"oauth_scopes,omitempty"`
+	OAuthAudience         string `json:"oauth_audience,omitempty"`
+	OAuthAuthMethod       string `json:"oauth_auth_method,omitempty"`
+	HTTPTLSCA             string `json:"http_tls_ca,omitempty"`
+	HTTPTLSCert           string `json:"http_tls_cert,omitempty"`
+	HTTPTLSKey            string `json:"http_tls_key,omitempty"`
+	CacheBust             bool   `json:"cache_bust,omitempty"`
+	Keyword               string `json:"keyword,omitempty"`
+	KeywordInvert         bool   `json:"keyword_invert,omitempty"`
+	ProxyHost             string `json:"proxy_host,omitempty"`
+	ProxyType             string `json:"proxy_type,omitempty"`
+	SSLVerify             any    `json:"ssl_verify,omitempty"`
+	SSLVerifyHost         any    `json:"ssl_verify_host,omitempty"`
+	MaxRedirects          int    `json:"max_redirects,omitempty"`
+	JsonPath              string `json:"json_path,omitempty"`
+	JsonExpected          string `json:"json_expected_value,omitempty"`
+	JsonType              string `json:"json_expected_type,omitempty"`
+	TLS                   bool   `json:"tls,omitempty"`
+	TLSCAFile             string `json:"tls_ca_file,omitempty"`
+	TLSServerName         string `json:"tls_server_name,omitempty"`
+	TLSCertificate        string `json:"tls_certificate,omitempty"`
+	TLSKey                string `json:"tls_key,omitempty"`
 	DomainExpireAlertDays string `json:"domain_expire_alert_days,omitempty"`
 	DNSRecordType         string `json:"dns_record_type,omitempty"`
 	DNSResolver           string `json:"dns_resolver,omitempty"`
@@ -40,6 +58,20 @@ type Job struct {
 	DNSDoHURL             string `json:"dns_doh_url,omitempty"`
 	DNSMatchMode          string `json:"dns_match_mode,omitempty"`
 	DNSExpected           string `json:"dns_expected,omitempty"`
+	SMTPSecurity          string `json:"smtp_security,omitempty"`
+	NTPMaxOffsetMs        int    `json:"ntp_max_offset_ms,omitempty"`
+	DbName                string `json:"db_name,omitempty"`
+	DbQuery               string `json:"db_query,omitempty"`
+	DbExpected            string `json:"db_expected,omitempty"`
+	SftpPrivateKey        string `json:"sftp_private_key,omitempty"`
+	SftpPath              string `json:"sftp_path,omitempty"`
+	SnmpCommunity         string `json:"snmp_community,omitempty"`
+	SnmpOID               string `json:"snmp_oid,omitempty"`
+	SnmpExpected          string `json:"snmp_expected,omitempty"`
+	RadiusSecret          string `json:"radius_secret,omitempty"`
+	KafkaBrokers          string `json:"kafka_brokers,omitempty"`
+	KafkaTopic            string `json:"kafka_topic,omitempty"`
+	KafkaMessage          string `json:"kafka_message,omitempty"`
 }
 
 // UnmarshalJSON supports legacy API payloads where numeric fields may come as strings.
@@ -62,6 +94,24 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 	j.DockerUpdateTime = rawInt64(raw["docker_update_time"])
 	j.StartTime = rawInt64(raw["start_time"])
 	j.RequestHeaders = rawString(raw["request_headers"])
+	j.RequestBody = rawString(raw["request_body"])
+	j.HTTPBodyEncoding = rawString(raw["http_body_encoding"])
+	j.AuthMethod = rawString(raw["auth_method"])
+	j.BasicAuthUser = rawString(raw["basic_auth_user"])
+	j.BasicAuthPass = rawString(raw["basic_auth_pass"])
+	j.BearerToken = rawString(raw["bearer_token"])
+	j.OAuthClientID = rawString(raw["oauth_client_id"])
+	j.OAuthClientSecret = rawString(raw["oauth_client_secret"])
+	j.OAuthTokenURL = rawString(raw["oauth_token_url"])
+	j.OAuthScopes = rawString(raw["oauth_scopes"])
+	j.OAuthAudience = rawString(raw["oauth_audience"])
+	j.OAuthAuthMethod = rawString(raw["oauth_auth_method"])
+	j.HTTPTLSCA = rawString(raw["http_tls_ca"])
+	j.HTTPTLSCert = rawString(raw["http_tls_cert"])
+	j.HTTPTLSKey = rawString(raw["http_tls_key"])
+	j.CacheBust = rawBool(raw["cache_bust"])
+	j.Keyword = rawString(raw["keyword"])
+	j.KeywordInvert = rawBool(raw["keyword_invert"])
 	j.ProxyHost = rawString(raw["proxy_host"])
 	j.ProxyType = rawString(raw["proxy_type"])
 	j.SSLVerify = rawAny(raw["ssl_verify"])
@@ -82,6 +132,20 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 	j.DNSDoHURL = rawString(raw["dns_doh_url"])
 	j.DNSMatchMode = rawString(raw["dns_match_mode"])
 	j.DNSExpected = rawString(raw["dns_expected"])
+	j.SMTPSecurity = rawString(raw["smtp_security"])
+	j.NTPMaxOffsetMs = rawInt(raw["ntp_max_offset_ms"])
+	j.DbName = rawString(raw["db_name"])
+	j.DbQuery = rawString(raw["db_query"])
+	j.DbExpected = rawString(raw["db_expected"])
+	j.SftpPrivateKey = rawString(raw["sftp_private_key"])
+	j.SftpPath = rawString(raw["sftp_path"])
+	j.SnmpCommunity = rawString(raw["snmp_community"])
+	j.SnmpOID = rawString(raw["snmp_oid"])
+	j.SnmpExpected = rawString(raw["snmp_expected"])
+	j.RadiusSecret = rawString(raw["radius_secret"])
+	j.KafkaBrokers = rawString(raw["kafka_brokers"])
+	j.KafkaTopic = rawString(raw["kafka_topic"])
+	j.KafkaMessage = rawString(raw["kafka_message"])
 
 	return nil
 }

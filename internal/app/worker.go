@@ -24,15 +24,15 @@ import (
 )
 
 type trackedJob struct {
-	status        string
-	state         string
-	job           model.Job
-	response      map[string]any
-	running       bool
-	cancel        context.CancelFunc
-	done          chan struct{}
-	started       int64
-	sendQueuedAt  int64 // unix: when current payload entered/refreshed on send queue
+	status       string
+	state        string
+	job          model.Job
+	response     map[string]any
+	running      bool
+	cancel       context.CancelFunc
+	done         chan struct{}
+	started      int64
+	sendQueuedAt int64 // unix: when current payload entered/refreshed on send queue
 }
 
 type Worker struct {
@@ -250,25 +250,8 @@ func (w *Worker) tickMap(m map[int]*trackedJob, now int64, running int, docker b
 			continue
 		}
 
-		var run handlers.Runner
-		switch {
-		case !docker && (j.Type == handlers.JobTypeHTTPS || j.Type == handlers.JobTypeHTTPJSON):
-			run = handlers.RunHTTP
-		case !docker && j.Type == handlers.JobTypeTCP:
-			run = handlers.RunTCP
-		case !docker && j.Type == handlers.JobTypeUDP:
-			run = handlers.RunUDP
-		case !docker && j.Type == handlers.JobTypePing:
-			run = handlers.RunPing
-		case !docker && (j.Type == handlers.JobTypeExporterDisk || j.Type == handlers.JobTypeExporterMemory || j.Type == handlers.JobTypeExporterCPU):
-			run = handlers.RunExporter
-		case !docker && j.Type == handlers.JobTypeDomain:
-			run = handlers.RunDomain
-		case !docker && j.Type == handlers.JobTypeDNS:
-			run = handlers.RunDNS
-		case docker:
-			run = handlers.RunDocker
-		default:
+		run := selectRunner(j.Type, docker)
+		if run == nil {
 			j.UpdateTime = now + 3600
 			continue
 		}
@@ -328,6 +311,55 @@ func (w *Worker) bumpScheduleAfterFailureOrTimeout(j *model.Job, now int64) {
 		return
 	}
 	j.UpdateTime = now
+}
+
+func selectRunner(jobType int, docker bool) handlers.Runner {
+	switch {
+	case docker:
+		return handlers.RunDocker
+	case jobType == handlers.JobTypeHTTPS || jobType == handlers.JobTypeHTTPJSON || jobType == handlers.JobTypeHTTPKeyword:
+		return handlers.RunHTTP
+	case jobType == handlers.JobTypeTCP:
+		return handlers.RunTCP
+	case jobType == handlers.JobTypeUDP:
+		return handlers.RunUDP
+	case jobType == handlers.JobTypePing:
+		return handlers.RunPing
+	case jobType == handlers.JobTypeExporterDisk || jobType == handlers.JobTypeExporterMemory || jobType == handlers.JobTypeExporterCPU:
+		return handlers.RunExporter
+	case jobType == handlers.JobTypeDomain:
+		return handlers.RunDomain
+	case jobType == handlers.JobTypeDNS:
+		return handlers.RunDNS
+	case jobType == handlers.JobTypeSMTP:
+		return handlers.RunSMTP
+	case jobType == handlers.JobTypeNTP:
+		return handlers.RunNTP
+	case jobType == handlers.JobTypeWebsocket:
+		return handlers.RunWebsocket
+	case jobType == handlers.JobTypeMySQL || jobType == handlers.JobTypePostgres:
+		return handlers.RunSQL
+	case jobType == handlers.JobTypeRedis:
+		return handlers.RunRedis
+	case jobType == handlers.JobTypeMongoDB:
+		return handlers.RunMongo
+	case jobType == handlers.JobTypeSFTP:
+		return handlers.RunSFTP
+	case jobType == handlers.JobTypeSNMP:
+		return handlers.RunSNMP
+	case jobType == handlers.JobTypeRADIUS:
+		return handlers.RunRADIUS
+	case jobType == handlers.JobTypeGRPCKeyword:
+		return handlers.RunGRPCKeyword
+	case jobType == handlers.JobTypeMQTT:
+		return handlers.RunMQTT
+	case jobType == handlers.JobTypeRabbitMQ:
+		return handlers.RunRabbitMQ
+	case jobType == handlers.JobTypeKafkaProducer:
+		return handlers.RunKafkaProducer
+	default:
+		return nil
+	}
 }
 
 // logUpdateTime is the timestamp used to bucket monitoring_logs on the server.
@@ -686,14 +718,14 @@ func (w *Worker) sendJobsState() bool {
 		}
 		w.cfg.Logf("Sending job %d monitor %d", t.job.JobID, t.job.ID)
 		jobsOut = append(jobsOut, map[string]any{
-			"job_id":      t.job.JobID,
-			"monitor_id":  t.job.ID,
+			"job_id":     t.job.JobID,
+			"monitor_id": t.job.ID,
 			// update_time = local schedule cursor (may be now/now-repeat after errors).
 			"update_time": t.job.UpdateTime,
 			// start_time = when the check began; server buckets the log by this
 			// so failure bumps do not push the oval into the next minute.
-			"start_time":  logUpdateTime(t),
-			"response":    t.response,
+			"start_time": logUpdateTime(t),
+			"response":   t.response,
 		})
 	}
 	if len(jobsOut) == 0 {

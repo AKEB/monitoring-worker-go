@@ -26,7 +26,12 @@ func responseIndicatesFailure(resp map[string]any, jobType int) bool {
 			return true
 		}
 	}
-	if jobType == handlers.JobTypeHTTPS || jobType == handlers.JobTypeHTTPJSON {
+	if jobType == handlers.JobTypeHTTPKeyword {
+		if v, ok := asInt64(resp["keyword_valid"]); ok && v == 0 {
+			return true
+		}
+	}
+	if jobType == handlers.JobTypeHTTPS || jobType == handlers.JobTypeHTTPJSON || jobType == handlers.JobTypeHTTPKeyword || jobType == handlers.JobTypeWebsocket {
 		return false
 	}
 	if v, ok := asInt64(resp["status_code"]); ok && v >= 400 {

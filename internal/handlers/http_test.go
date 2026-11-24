@@ -96,3 +96,79 @@ func TestRunHTTP_ConnectionRefused(t *testing.T) {
 		t.Fatalf("response_error_num=%v err=%v", resp["response_error_num"], resp["response_error"])
 	}
 }
+
+func TestRunHTTPKeyword_BodyContainsKeyword(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello monitoring world"))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp := RunHTTP(ctx, model.Job{
+		URL:     srv.URL,
+		Timeout: 5,
+		Type:    JobTypeHTTPKeyword,
+		Keyword: "monitoring",
+	})
+
+	if resp["status"] != 1 {
+		t.Fatalf("status=%v err=%v", resp["status"], resp["response_error"])
+	}
+	if resp["keyword_valid"] != 1 {
+		t.Fatalf("keyword_valid=%v", resp["keyword_valid"])
+	}
+	if resp["response_error"] != "" {
+		t.Fatalf("response_error=%q want empty", resp["response_error"])
+	}
+}
+
+func TestRunHTTPKeyword_MissingKeyword(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello world"))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp := RunHTTP(ctx, model.Job{
+		URL:     srv.URL,
+		Timeout: 5,
+		Type:    JobTypeHTTPKeyword,
+		Keyword: "monitoring",
+	})
+
+	if resp["keyword_valid"] != 0 {
+		t.Fatalf("keyword_valid=%v want 0", resp["keyword_valid"])
+	}
+	if resp["response_error"] != "Keyword not found" {
+		t.Fatalf("response_error=%q", resp["response_error"])
+	}
+}
+
+func TestRunHTTPKeyword_InvertRejectsFoundKeyword(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello monitoring world"))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp := RunHTTP(ctx, model.Job{
+		URL:           srv.URL,
+		Timeout:       5,
+		Type:          JobTypeHTTPKeyword,
+		Keyword:       "monitoring",
+		KeywordInvert: true,
+	})
+
+	if resp["keyword_valid"] != 0 {
+		t.Fatalf("keyword_valid=%v want 0", resp["keyword_valid"])
+	}
+	if resp["response_error"] != "Keyword found but invert is enabled" {
+		t.Fatalf("response_error=%q", resp["response_error"])
+	}
+}

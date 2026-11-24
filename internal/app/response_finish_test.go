@@ -37,3 +37,10 @@ func TestResponseIndicatesFailure_NonHTTP4xx(t *testing.T) {
 		t.Fatal("non-HTTP 4xx should still count as local failure")
 	}
 }
+
+func TestResponseIndicatesFailure_WebsocketAllows4xx(t *testing.T) {
+	resp := map[string]any{"status": 1, "status_code": 401}
+	if responseIndicatesFailure(resp, handlers.JobTypeWebsocket) {
+		t.Fatal("websocket 4xx with status=1 must not be local failure")
+	}
+}
