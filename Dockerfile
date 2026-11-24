@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Cross-compile on the CI host (amd64); no QEMU during go build.
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 RUN apk add --no-cache ca-certificates
 WORKDIR /src
 COPY go.mod go.sum ./
